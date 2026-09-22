@@ -211,20 +211,12 @@ class PocketOptionFeed:
         return low <= value <= high
 
     def _extract_binary_tick(self, data):
-        """Decode the compact Pocket Option stream frame.
-
-        The documented stream body is:
-        uint32 asset id + double price + uint32 timestamp +
-        five float fields, with optional trailing flag bytes.
-        Some websocket proxies prepend a small binary framing prefix, so the
-        parser also checks nearby offsets while requiring a plausible price.
-        """
+        """Decode the compact Pocket Option stream frame."""
         if not isinstance(data, (bytes, bytearray)) or len(data) < 36:
             return None
 
         raw = bytes(data)
 
-        # First try the documented 36-byte structure.
         try:
             values = struct.unpack("<IdIfffff", raw[:36])
             if self._valid_price(values[1]):
@@ -235,8 +227,6 @@ class PocketOptionFeed:
         except struct.error:
             pass
 
-        # If the frame contains a small prefix, find the same structure at
-        # a nearby offset. Only accept a price in the configured asset's range.
         for offset in range(1, min(17, len(raw) - 35)):
             try:
                 values = struct.unpack("<IdIfffff", raw[offset:offset + 36])
@@ -277,6 +267,10 @@ class PocketOptionFeed:
             elif isinstance(value, list):
                 for child in value:
                     walk(child, asset, timestamp)
+            elif isinstance(value, (bytes, bytearray)):
+                parsed = self._extract_binary_tick(bytes(value))
+                if parsed:
+                    candidates.append(parsed)
 
         walk(body)
         preferred = [x for x in candidates if x[0] in (self.asset, None)]
@@ -310,6 +304,7 @@ class PocketOptionFeed:
                     self.connected = True
                     self.authenticated = False
                     self.last_error = ""
+                    self._update_stream_samples = 0
                     delay = 2
 
                     await self._handshake(ws)
@@ -359,11 +354,13 @@ class PocketOptionFeed:
                                 continue
 
                             event, body, count = decoded
-                            log.info(
-                                "Pocket Option event received: %s body_type=%s",
-                                event,
-                                type(body).__name__,
-                            )
+
+                            if count:
+                                attachments = []
+                                for _ in range(count):
+                                    attachments.append(await ws.recv())
+                                body = self._replace_placeholders(body, attachments)
+
                             if event == "updateStream" and self._update_stream_samples < 3:
                                 self._update_stream_samples += 1
                                 try:
@@ -375,15 +372,21 @@ class PocketOptionFeed:
                                     self._update_stream_samples,
                                     sample[:2000],
                                 )
-                            if count:
-                                attachments = []
-                                for _ in range(count):
-                                    attachments.append(await ws.recv())
-                                body = self._replace_placeholders(body, attachments)
+                                if isinstance(body, (bytes, bytearray)):
+                                    log.info(
+                                        "Pocket Option updateStream binary attachment %d bytes hex=%s",
+                                        len(body),
+                                        bytes(body)[:64].hex(),
+                                    )
+
+                            log.info(
+                                "Pocket Option event received: %s body_type=%s attachments=%d",
+                                event,
+                                type(body).__name__,
+                                count,
+                            )
 
                             parsed = self._extract_event(event, body)
-                            if not parsed and isinstance(body, (bytes, bytearray)):
-                                parsed = self._extract_binary_tick(bytes(body))
                             if parsed:
                                 asset, price, ts = parsed
                                 stamp = float(ts) if ts else time.time()
