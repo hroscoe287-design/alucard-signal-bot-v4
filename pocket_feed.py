@@ -337,10 +337,7 @@ class PocketOptionFeed:
                                         price,
                                     )
                                 else:
-                                    log.debug(
-                                        "Pocket Option binary frame received: %d bytes",
-                                        len(msg),
-                                    )
+                                    log.info("Pocket Option binary frame received: %d bytes hex=%s", len(msg), msg[:32].hex())
                                 continue
 
                             text_msg = str(msg)
@@ -355,12 +352,7 @@ class PocketOptionFeed:
                                 )
 
                             decoded = self._decode_socket_packet(text_msg)
-                            if decoded is None:
-                                if text_msg:
-                                    log.debug("Pocket Option websocket message: %s", text_msg[:180])
-                                continue
-
-                            event, body, count = decoded
+                            if decoded is None:\n                                if text_msg:\n                                    log.info("Pocket Option non-event message: %s", text_msg[:180])\n                                continue\n\n                            event, body, count = decoded\n                            log.info("Pocket Option event received: %s body_type=%s", event, type(body).__name__)
                             if count:
                                 attachments = []
                                 for _ in range(count):
@@ -383,7 +375,7 @@ class PocketOptionFeed:
                                     price,
                                 )
                             elif event in {"updateStream", "updateHistoryNewFast", "successauth"}:
-                                log.debug("Pocket Option event received: %s", event)
+                                log.info("Pocket Option market event had no valid price: %s", event)
                     finally:
                         keepalive_task.cancel()
                         try:
