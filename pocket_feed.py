@@ -72,22 +72,16 @@ class PocketOptionFeed:
         return "42" + json.dumps([event, payload], separators=(",", ":"))
 
     async def _subscribe(self, ws):
-        # Market-data subscriptions only. Keep the same events used by
-        # current community clients, with the asset subscription first.
-        await ws.send(self._event_packet("subscribeSymbol", {
-            "asset": self.asset,
-        }))
+        await ws.send(self._event_packet("subscribeSymbol", {"asset": self.asset}))
         await ws.send(self._event_packet("changeSymbol", {
             "asset": self.asset,
             "period": self.period,
         }))
-        await ws.send(self._event_packet("subfor", {
-            "asset": self.asset,
-        }))
+        await ws.send(self._event_packet("subfor", {"asset": self.asset}))
 
     async def _keepalive(self, ws):
         """Send the Pocket Option application-level keepalive."""
-        while self.running and not ws.closed:
+        while self.running:
             try:
                 await ws.send(self._event_packet("ps", {}))
                 await asyncio.sleep(15)
@@ -103,70 +97,7 @@ class PocketOptionFeed:
         except (TypeError, ValueError):
             return None
 
-    def _extract(self, msg):
-        if isinstance(msg, bytes):
-            msg = msg.decode("utf-8", "ignore")
-        if not isinstance(msg, str):
-            return None
-
-        if msg == "2":
-            return "PONG"
-        if not msg.startswith("42"):
-            return None
-
-        try:
-            packet = json.loads(msg[2:])
-        except Exception:
-            return None
-        if not isinstance(packet, list) or len(packet) < 2:
-            return None
-
-        event = str(packet[0])
-        body = packet[1]
-
-        # updateStream commonly carries compact arrays/dicts. Prefer a
-        # matching asset and a price-like field over arbitrary numeric values.
-        candidates = []
-
-        def walk(value, asset=None, timestamp=None):
-            if isinstance(value, dict):
-                current_asset = asset
-                current_ts = timestamp
-                for key, child in value.items():
-                    lk = str(key).lower()
-                    if lk in {"asset", "symbol", "pair", "active", "instrument"}:
-                        current_asset = str(child)
-                    elif lk in {"time", "timestamp", "ts", "at"}:
-                        try:
-                            current_ts = float(child)
-                        except (TypeError, ValueError):
-                            pass
-                    elif lk in {"price", "rate", "quote", "close", "value", "bid", "ask", "close_value"}:
-                        number = self._number(child)
-                        if number is not None:
-                            candidates.append((current_asset, number, current_ts))
-                    walk(child, current_asset, current_ts)
-            elif isinstance(value, list):
-                for child in value:
-                    walk(child, asset, timestamp)
-
-        walk(body)
-
-        # updateStream is the preferred source. For generic packets, accept a
-        # price only when it is explicitly associated with the selected asset.
-        preferred = [x for x in candidates if x[0] in (self.asset, None)]
-        if event == "updateStream" and preferred:
-            asset, price, ts = preferred[0]
-            return asset or self.asset, price, ts
-
-        for asset, price, ts in preferred:
-            if asset == self.asset:
-                return asset, price, ts
-
-        return None
-
     def _replace_placeholders(self, value, attachments):
-        """Replace Socket.IO binary placeholders with received attachments."""
         if isinstance(value, dict):
             if value.get("_placeholder") is True and isinstance(value.get("num"), int):
                 idx = value["num"]
@@ -179,16 +110,14 @@ class PocketOptionFeed:
         return value
 
     def _decode_socket_packet(self, msg):
-        """Decode a text Socket.IO packet, returning (event, body, attachment_count)."""
         if isinstance(msg, bytes):
             return None
-        if not isinstance(msg, str) or not msg.startswith("42") and not msg.startswith("45"):
+        if not isinstance(msg, str) or (not msg.startswith("42") and not msg.startswith("45")):
             return None
         if msg.startswith("42"):
             raw = msg[2:]
             attachments = 0
         else:
-            # Socket.IO binary event: 45<attachment-count>-<json>
             raw = msg[2:]
             dash = raw.find("-")
             if dash < 1:
@@ -206,33 +135,7 @@ class PocketOptionFeed:
             return None
         return str(packet[0]), packet[1], attachments
 
-    async def _recv_socket_packet(self, ws, first=None):
-        """Receive one Socket.IO event, including all binary attachments."""
-        msg = await ws.recv() if first is None else first
-        if isinstance(msg, bytes):
-            return None, None, msg
-
-        decoded = self._decode_socket_packet(msg)
-        if decoded is None:
-            return None, None, msg
-
-        event, body, count = decoded
-        if count:
-            attachments = []
-            for _ in range(count):
-                attachment = await ws.recv()
-                if isinstance(attachment, str):
-                    try:
-                        attachment = attachment.encode("utf-8")
-                    except Exception:
-                        pass
-                attachments.append(attachment)
-            body = self._replace_placeholders(body, attachments)
-        return event, body, None
-
     async def _handshake(self, ws):
-        # Engine.IO EIO=4 websocket handshake:
-        # server 0{...} -> client 40 -> server 40{...}
         first = await asyncio.wait_for(ws.recv(), timeout=15)
         if isinstance(first, bytes):
             first = first.decode("utf-8", "ignore")
@@ -260,12 +163,8 @@ class PocketOptionFeed:
 
         auth_deadline = time.monotonic() + 15
         while time.monotonic() < auth_deadline:
-            msg = await asyncio.wait_for(
-                ws.recv(), timeout=max(1, auth_deadline - time.monotonic())
-            )
+            msg = await asyncio.wait_for(ws.recv(), timeout=max(1, auth_deadline - time.monotonic()))
             if isinstance(msg, bytes):
-                # A binary frame by itself is an attachment belonging to a
-                # preceding 45... packet. The packet receiver consumes those.
                 continue
 
             text_msg = str(msg)
@@ -351,10 +250,7 @@ class PocketOptionFeed:
                             decoded = self._decode_socket_packet(text_msg)
                             if decoded is None:
                                 if text_msg:
-                                    log.debug(
-                                        "Pocket Option websocket message: %s",
-                                        text_msg[:180],
-                                    )
+                                    log.debug("Pocket Option websocket message: %s", text_msg[:180])
                                 continue
 
                             event, body, count = decoded
@@ -372,16 +268,12 @@ class PocketOptionFeed:
                                     stamp /= 1000.0
                                 self.last_tick = time.time()
                                 self.on_tick(asset, price, stamp)
-                                log.debug(
-                                    "Pocket Option tick: %s %.8f",
+                                log.info(
+                                    "Pocket Option market tick received: %s %.8f",
                                     asset,
                                     price,
                                 )
-                            elif event in {
-                                "updateStream",
-                                "updateHistoryNewFast",
-                                "successauth",
-                            }:
+                            elif event in {"updateStream", "updateHistoryNewFast", "successauth"}:
                                 log.debug("Pocket Option event received: %s", event)
                     finally:
                         keepalive_task.cancel()
@@ -405,7 +297,6 @@ class PocketOptionFeed:
                 self.ws = None
 
     def _extract_event(self, event, body):
-        """Extract a tick from an already-decoded Socket.IO event."""
         candidates = []
 
         def walk(value, asset=None, timestamp=None):
