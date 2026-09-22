@@ -78,6 +78,35 @@ class PocketOptionFeed:
         }))
         await ws.send(self._event_packet("subfor", {"asset": self.asset}))
 
+    async def change_subscription(self, asset, period):
+        """Switch the live Pocket Option subscription without restarting the service."""
+        try:
+            period = int(period)
+        except (TypeError, ValueError):
+            raise ValueError("Invalid timeframe period")
+
+        if not asset:
+            raise ValueError("Asset is required")
+
+        self.asset = str(asset)
+        self.period = period
+
+        if self.ws and self.connected and self.authenticated:
+            await self._subscribe(self.ws)
+            log.info(
+                "Pocket Option subscription changed to %s/%ss",
+                self.asset,
+                self.period,
+            )
+            return True
+
+        log.info(
+            "Pocket Option subscription queued for reconnect: %s/%ss",
+            self.asset,
+            self.period,
+        )
+        return False
+
     async def _keepalive(self, ws):
         while self.running:
             try:
@@ -218,9 +247,6 @@ class PocketOptionFeed:
 
         raw = bytes(data)
 
-        # Pocket Option currently sends updateStream as a Socket.IO binary
-        # attachment containing UTF-8 JSON, e.g. [["EURUSD_otc",1790123092.94,1.16617]].
-        # Try that representation first; older compact binary frames are handled below.
         try:
             decoded = json.loads(raw.decode("utf-8"))
             if isinstance(decoded, list):
