@@ -9,12 +9,25 @@ class SignalEngine:
    if direction=="CALL":call+=w
    elif direction=="PUT":put+=w
    votes.append({"name":name,"direction":direction,"weight":w})
+
   vote("EMA trend","CALL" if v["ema9"]>v["ema20"]>v["ema50"] else "PUT" if v["ema9"]<v["ema20"]<v["ema50"] else "WAIT",2)
   vote("MACD","CALL" if v["macd_hist"]>0 else "PUT" if v["macd_hist"]<0 else "WAIT",2)
   vote("RSI","CALL" if 50<v["rsi"]<70 else "PUT" if 30<v["rsi"]<50 else "WAIT")
   vote("CCI","CALL" if v["cci"]>0 else "PUT" if v["cci"]<0 else "WAIT")
   vote("Parabolic SAR","CALL" if v["price"]>v["psar"] else "PUT" if v["price"]<v["psar"] else "WAIT")
   vote("Alligator","CALL" if v["alligator_lips"]>v["alligator_teeth"]>v["alligator_jaw"] else "PUT" if v["alligator_lips"]<v["alligator_teeth"]<v["alligator_jaw"] else "WAIT",2)
-  total=9; confidence=round(max(call,put)/total*100,1)
+
+  fractal_direction = "CALL" if v.get("fractal_down") and not v.get("fractal_up") else "PUT" if v.get("fractal_up") and not v.get("fractal_down") else "WAIT"
+  vote("Fractal (2)",fractal_direction)
+
+  # Candle momentum is confirmation only; it cannot override the trend indicators.
+  vote("Candle momentum","CALL" if v.get("price",0)>v.get("ema9",0) else "PUT" if v.get("price",0)<v.get("ema9",0) else "WAIT")
+
+  total=11
+  confidence=round(max(call,put)/total*100,1)
   signal="CALL" if call>put and confidence>=self.min_confidence else "PUT" if put>call and confidence>=self.min_confidence else "WAIT"
-  return {"signal":signal,"confidence":confidence,"call_score":call,"put_score":put,"votes":votes,"reason":f"CALL {call}/{total}, PUT {put}/{total}","timestamp":datetime.now(timezone.utc).isoformat()}
+  if signal=="WAIT":
+   reason=f"Insufficient agreement: CALL {call}/{total}, PUT {put}/{total}"
+  else:
+   reason=f"{signal} confirmation: CALL {call}/{total}, PUT {put}/{total}"
+  return {"signal":signal,"confidence":confidence,"call_score":call,"put_score":put,"votes":votes,"reason":reason,"timestamp":datetime.now(timezone.utc).isoformat()}
