@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import struct
 import time
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
@@ -10,11 +11,7 @@ log = logging.getLogger("alucard.feed")
 
 
 class PocketOptionFeed:
-    """Signal-only Pocket Option market feed.
-
-    Uses the Socket.IO/Engine.IO websocket framing used by current community
-    clients. No order/trade commands are sent.
-    """
+    """Signal-only Pocket Option market feed."""
 
     def __init__(self, url, auth_json, on_tick, asset="EURUSD_otc", period=60):
         self.url = url
@@ -80,7 +77,6 @@ class PocketOptionFeed:
         await ws.send(self._event_packet("subfor", {"asset": self.asset}))
 
     async def _keepalive(self, ws):
-        """Send the Pocket Option application-level keepalive."""
         while self.running:
             try:
                 await ws.send(self._event_packet("ps", {}))
@@ -114,11 +110,9 @@ class PocketOptionFeed:
             return None
         if not isinstance(msg, str) or (not msg.startswith("42") and not msg.startswith("45")):
             return None
-        if msg.startswith("42"):
-            raw = msg[2:]
-            attachments = 0
-        else:
-            raw = msg[2:]
+        raw = msg[2:]
+        attachments = 0
+        if msg.startswith("45"):
             dash = raw.find("-")
             if dash < 1:
                 return None
@@ -194,6 +188,104 @@ class PocketOptionFeed:
                 return
 
         raise RuntimeError("Pocket Option authorization response not received")
+
+    def _price_bounds(self):
+        name = self.asset.upper()
+        if "XAU" in name or "GOLD" in name:
+            return 100.0, 10000.0
+        if "XAG" in name or "SILVER" in name:
+            return 5.0, 200.0
+        if any(x in name for x in ("BTC", "ETH", "LTC", "XRP", "BCH", "DOGE", "ADA", "SOL", "DOT", "LINK", "AVAX", "BNB")):
+            return 0.0000001, 1_000_000_000.0
+        if any(x in name for x in ("US30", "NAS", "SPX", "DAX", "CAC", "FTSE")):
+            return 10.0, 100_000.0
+        return 0.00001, 10.0
+
+    def _valid_price(self, value):
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return False
+        low, high = self._price_bounds()
+        return low <= value <= high
+
+    def _extract_binary_tick(self, data):
+        """Decode the compact Pocket Option stream frame.
+
+        The documented stream body is:
+        uint32 asset id + double price + uint32 timestamp +
+        five float fields, with optional trailing flag bytes.
+        Some websocket proxies prepend a small binary framing prefix, so the
+        parser also checks nearby offsets while requiring a plausible price.
+        """
+        if not isinstance(data, (bytes, bytearray)) or len(data) < 36:
+            return None
+
+        raw = bytes(data)
+
+        # First try the documented 36-byte structure.
+        try:
+            values = struct.unpack("<IdIfffff", raw[:36])
+            if self._valid_price(values[1]):
+                stamp = float(values[2])
+                if stamp > 10_000_000_000:
+                    stamp /= 1000.0
+                return self.asset, float(values[1]), stamp
+        except struct.error:
+            pass
+
+        # If the frame contains a small prefix, find the same structure at
+        # a nearby offset. Only accept a price in the configured asset's range.
+        for offset in range(1, min(17, len(raw) - 35)):
+            try:
+                values = struct.unpack("<IdIfffff", raw[offset:offset + 36])
+            except struct.error:
+                continue
+            if not self._valid_price(values[1]):
+                continue
+            stamp = float(values[2])
+            if stamp <= 0:
+                continue
+            if stamp > 10_000_000_000:
+                stamp /= 1000.0
+            return self.asset, float(values[1]), stamp
+
+        return None
+
+    def _extract_event(self, event, body):
+        candidates = []
+
+        def walk(value, asset=None, timestamp=None):
+            if isinstance(value, dict):
+                current_asset = asset
+                current_ts = timestamp
+                for key, child in value.items():
+                    lk = str(key).lower()
+                    if lk in {"asset", "symbol", "pair", "active", "instrument"}:
+                        current_asset = str(child)
+                    elif lk in {"time", "timestamp", "ts", "at"}:
+                        try:
+                            current_ts = float(child)
+                        except (TypeError, ValueError):
+                            pass
+                    elif lk in {"price", "rate", "quote", "close", "value", "bid", "ask", "close_value"}:
+                        number = self._number(child)
+                        if number is not None and self._valid_price(number):
+                            candidates.append((current_asset, number, current_ts))
+                    walk(child, current_asset, current_ts)
+            elif isinstance(value, list):
+                for child in value:
+                    walk(child, asset, timestamp)
+
+        walk(body)
+        preferred = [x for x in candidates if x[0] in (self.asset, None)]
+        if event == "updateStream" and preferred:
+            asset, price, ts = preferred[0]
+            return asset or self.asset, price, ts
+        for asset, price, ts in preferred:
+            if asset == self.asset:
+                return asset, price, ts
+        return None
 
     async def run(self):
         self.running = True
@@ -312,64 +404,6 @@ class PocketOptionFeed:
                 self.connected = False
                 self.authenticated = False
                 self.ws = None
-
-    def _extract_binary_tick(self, data):
-        """Decode Pocket Option's compact real-time price frame."""
-        if not isinstance(data, (bytes, bytearray)) or len(data) < 36:
-            return None
-        try:
-            import struct
-
-            _asset_id, price, timestamp, _volume, _change, _bid, _ask, _spread = (
-                struct.unpack("<IdIfffff", bytes(data[:36]))
-            )
-            price = self._number(price)
-            if price is None:
-                return None
-
-            stamp = float(timestamp)
-            if stamp > 10_000_000_000:
-                stamp /= 1000.0
-
-            # This connection is subscribed to one configured symbol.
-            return self.asset, price, stamp
-        except (struct.error, TypeError, ValueError, OverflowError):
-            return None
-
-    def _extract_event(self, event, body):
-        candidates = []
-
-        def walk(value, asset=None, timestamp=None):
-            if isinstance(value, dict):
-                current_asset = asset
-                current_ts = timestamp
-                for key, child in value.items():
-                    lk = str(key).lower()
-                    if lk in {"asset", "symbol", "pair", "active", "instrument"}:
-                        current_asset = str(child)
-                    elif lk in {"time", "timestamp", "ts", "at"}:
-                        try:
-                            current_ts = float(child)
-                        except (TypeError, ValueError):
-                            pass
-                    elif lk in {"price", "rate", "quote", "close", "value", "bid", "ask", "close_value"}:
-                        number = self._number(child)
-                        if number is not None:
-                            candidates.append((current_asset, number, current_ts))
-                    walk(child, current_asset, current_ts)
-            elif isinstance(value, list):
-                for child in value:
-                    walk(child, asset, timestamp)
-
-        walk(body)
-        preferred = [x for x in candidates if x[0] in (self.asset, None)]
-        if event == "updateStream" and preferred:
-            asset, price, ts = preferred[0]
-            return asset or self.asset, price, ts
-        for asset, price, ts in preferred:
-            if asset == self.asset:
-                return asset, price, ts
-        return None
 
     async def stop(self):
         self.running = False
