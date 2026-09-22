@@ -72,13 +72,27 @@ class PocketOptionFeed:
     def _event_packet(self, event, payload):
         return "42" + json.dumps([event, payload], separators=(",", ":"))
 
+    def _wire_asset(self, asset=None):
+        """Return the symbol format expected by Pocket Option's wire protocol."""
+        name = str(asset or self.asset)
+        upper = name.upper().lstrip("#")
+        stock_symbols = {"AAPL", "MSFT", "AMZN", "TSLA", "GOOGL", "META", "NFLX", "NVDA", "VISA", "BA", "AMD", "INTC", "PFE", "COIN", "BABA", "MCD", "PYPL", "CSCO", "JPM", "JNJ", "XOM", "AXP", "FB", "VIX", "CITI", "GME", "PLTR", "MARA"}
+        if upper in stock_symbols or (upper.endswith("_OTC") and upper[:-4] in stock_symbols):
+            return "#" + name.lstrip("#")
+        return name.lstrip("#")
+
+    @staticmethod
+    def _display_asset(asset):
+        return str(asset).lstrip("#") if asset is not None else asset
+
     async def _subscribe(self, ws):
-        await ws.send(self._event_packet("subscribeSymbol", {"asset": self.asset}))
+        wire_asset = self._wire_asset(self.asset)
+        await ws.send(self._event_packet("subscribeSymbol", {"asset": wire_asset}))
         await ws.send(self._event_packet("changeSymbol", {
-            "asset": self.asset,
+            "asset": wire_asset,
             "period": self.period,
         }))
-        await ws.send(self._event_packet("subfor", {"asset": self.asset}))
+        await ws.send(self._event_packet("subfor", {"asset": wire_asset}))
 
     async def change_subscription(self, asset, period):
         """Switch the live Pocket Option subscription without restarting the service."""
@@ -90,7 +104,7 @@ class PocketOptionFeed:
         if not asset:
             raise ValueError("Asset is required")
 
-        self.asset = str(asset)
+        self.asset = str(asset).lstrip("#")
         self.period = period
 
         if self.ws and self.connected and self.authenticated:
@@ -223,7 +237,7 @@ class PocketOptionFeed:
         raise RuntimeError("Pocket Option authorization response not received")
 
     def _price_bounds(self):
-        name = self.asset.upper()
+        name = self.asset.upper().lstrip("#")
         if "XAU" in name or "GOLD" in name:
             return 100.0, 10000.0
         if "XAG" in name or "SILVER" in name:
@@ -257,7 +271,7 @@ class PocketOptionFeed:
                 for item in decoded:
                     if not isinstance(item, (list, tuple)) or len(item) < 3:
                         continue
-                    asset = str(item[0]) if item[0] is not None else self.asset
+                    asset = self._display_asset(item[0]) if item[0] is not None else self.asset
                     try:
                         stamp = float(item[1])
                         price = float(item[2])
@@ -266,7 +280,7 @@ class PocketOptionFeed:
                     if self._valid_price(price) and (asset == self.asset or not asset):
                         if stamp > 10_000_000_000:
                             stamp /= 1000.0
-                        return asset or self.asset, price, stamp
+                        return self._display_asset(asset) or self.asset, price, stamp
         except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
             pass
 
@@ -279,7 +293,7 @@ class PocketOptionFeed:
                 stamp = float(values[2])
                 if stamp > 10_000_000_000:
                     stamp /= 1000.0
-                return self.asset, float(values[1]), stamp
+                return self._display_asset(self.asset), float(values[1]), stamp
         except struct.error:
             pass
 
@@ -295,7 +309,7 @@ class PocketOptionFeed:
                 continue
             if stamp > 10_000_000_000:
                 stamp /= 1000.0
-            return self.asset, float(values[1]), stamp
+            return self._display_asset(self.asset), float(values[1]), stamp
 
         return None
 
@@ -308,7 +322,7 @@ class PocketOptionFeed:
                 return []
         if not isinstance(source, dict):
             return []
-        asset = str(source.get("asset") or source.get("symbol") or self.asset)
+        asset = self._display_asset(source.get("asset") or source.get("symbol") or self.asset)
         raw = source.get("candles") or source.get("history") or []
         if isinstance(raw, dict):
             raw = raw.get("candles") or raw.get("history") or []
@@ -337,7 +351,7 @@ class PocketOptionFeed:
                 for key, child in value.items():
                     lk = str(key).lower()
                     if lk in {"asset", "symbol", "pair", "active", "instrument"}:
-                        current_asset = str(child)
+                        current_asset = self._display_asset(child)
                     elif lk in {"time", "timestamp", "ts", "at"}:
                         try:
                             current_ts = float(child)
