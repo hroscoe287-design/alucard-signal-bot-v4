@@ -217,6 +217,28 @@ class PocketOptionFeed:
 
         raw = bytes(data)
 
+        # Pocket Option currently sends updateStream as a Socket.IO binary
+        # attachment containing UTF-8 JSON, e.g. [["EURUSD_otc",1790123092.94,1.16617]].
+        # Try that representation first; older compact binary frames are handled below.
+        try:
+            decoded = json.loads(raw.decode("utf-8"))
+            if isinstance(decoded, list):
+                for item in decoded:
+                    if not isinstance(item, (list, tuple)) or len(item) < 3:
+                        continue
+                    asset = str(item[0]) if item[0] is not None else self.asset
+                    try:
+                        stamp = float(item[1])
+                        price = float(item[2])
+                    except (TypeError, ValueError):
+                        continue
+                    if self._valid_price(price) and (asset == self.asset or not asset):
+                        if stamp > 10_000_000_000:
+                            stamp /= 1000.0
+                        return asset or self.asset, price, stamp
+        except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+            pass
+
         try:
             values = struct.unpack("<IdIfffff", raw[:36])
             if self._valid_price(values[1]):
