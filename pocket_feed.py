@@ -230,8 +230,10 @@ class PocketOptionFeed:
             return 5.0, 200.0
         if any(x in name for x in ("BTC", "ETH", "LTC", "XRP", "BCH", "DOGE", "ADA", "SOL", "DOT", "LINK", "AVAX", "BNB")):
             return 0.0000001, 1_000_000_000.0
-        if any(x in name for x in ("US30", "NAS", "SPX", "DAX", "CAC", "FTSE")):
+        if any(x in name for x in ("US30", "NAS", "SPX", "DAX", "CAC", "FTSE", "100GBP", "E50", "D30")):
             return 10.0, 100_000.0
+        if any(x in name for x in ("AAPL", "MSFT", "AMZN", "TSLA", "GOOGL", "META", "NFLX", "NVDA", "VISA", "BA", "AMD", "INTC", "PFE", "COIN", "BABA", "MCD", "PYPL", "CSCO", "JPM", "JNJ", "XOM")):
+            return 0.01, 1_000_000.0
         return 0.00001, 10.0
 
     def _valid_price(self, value):
@@ -244,7 +246,7 @@ class PocketOptionFeed:
 
     def _extract_binary_tick(self, data):
         """Decode the compact Pocket Option stream frame."""
-        if not isinstance(data, (bytes, bytearray)) or len(data) < 36:
+        if not isinstance(data, (bytes, bytearray)) or len(data) < 5:
             return None
 
         raw = bytes(data)
@@ -267,6 +269,9 @@ class PocketOptionFeed:
                         return asset or self.asset, price, stamp
         except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
             pass
+
+        if len(raw) < 36:
+            return None
 
         try:
             values = struct.unpack("<IdIfffff", raw[:36])
