@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: alucard-v4
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn main:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
+    healthCheckPath: /api/health
+    envVars:
+      - key: PO_WS_URL
+        value: wss://api-in.pocketoption.com:8095/socket.io/?EIO=3&transport=websocket
+      - key: PO_AUTH_JSON
+        sync: false
+      - key: PO_ASSET
+        value: EURUSD_otc
+      - key: PO_TIMEFRAME
+        value: 1m
+      - key: MIN_CONFIDENCE
+        value: "60"
+      - key: STALE_SECONDS
+        value: "8"
+      - key: ENTRY_SECONDS
+        value: "12"
