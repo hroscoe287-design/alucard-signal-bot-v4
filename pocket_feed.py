@@ -25,6 +25,7 @@ class PocketOptionFeed:
         self.last_tick = 0
         self.last_error = ""
         self.ws = None
+        self._update_stream_samples = 0
 
     def _url(self):
         raw = self.url.strip()
@@ -363,6 +364,17 @@ class PocketOptionFeed:
                                 event,
                                 type(body).__name__,
                             )
+                            if event == "updateStream" and self._update_stream_samples < 3:
+                                self._update_stream_samples += 1
+                                try:
+                                    sample = json.dumps(body, separators=(",", ":"), default=str)
+                                except Exception:
+                                    sample = repr(body)
+                                log.info(
+                                    "Pocket Option updateStream sample %d: %s",
+                                    self._update_stream_samples,
+                                    sample[:2000],
+                                )
                             if count:
                                 attachments = []
                                 for _ in range(count):
