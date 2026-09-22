@@ -13,10 +13,11 @@ log = logging.getLogger("alucard.feed")
 class PocketOptionFeed:
     """Signal-only Pocket Option market feed."""
 
-    def __init__(self, url, auth_json, on_tick, asset="EURUSD_otc", period=60):
+    def __init__(self, url, auth_json, on_tick, on_history=None, asset="EURUSD_otc", period=60):
         self.url = url
         self.auth_json = auth_json or ""
         self.on_tick = on_tick
+        self.on_history = on_history
         self.asset = asset
         self.period = int(period)
         self.running = False
@@ -265,6 +266,34 @@ class PocketOptionFeed:
 
         return None
 
+    def _extract_history(self, body):
+        source = body
+        if isinstance(source, (bytes, bytearray)):
+            try:
+                source = json.loads(bytes(source).decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                return []
+        if not isinstance(source, dict):
+            return []
+        asset = str(source.get("asset") or source.get("symbol") or self.asset)
+        raw = source.get("candles") or source.get("history") or []
+        if isinstance(raw, dict):
+            raw = raw.get("candles") or raw.get("history") or []
+        out = []
+        for row in raw if isinstance(raw, list) else []:
+            if not isinstance(row, (list, tuple)) or len(row) < 5:
+                continue
+            try:
+                ts = float(row[0])
+                o, c, h, l = map(float, row[1:5])
+            except (TypeError, ValueError):
+                continue
+            if ts > 10_000_000_000:
+                ts /= 1000.0
+            if asset == self.asset and min(o, c, h, l) > 0 and h >= max(o, c) and l <= min(o, c):
+                out.append({"timestamp": ts, "open": o, "close": c, "high": h, "low": l})
+        return out
+
     def _extract_event(self, event, body):
         candidates = []
 
@@ -407,6 +436,12 @@ class PocketOptionFeed:
                                 type(body).__name__,
                                 count,
                             )
+
+                            if event == "updateHistoryNewFast" and self.on_history:
+                                history = self._extract_history(body)
+                                if history:
+                                    self.on_history(history)
+                                    log.info("Pocket Option historical candles loaded: %d", len(history))
 
                             parsed = self._extract_event(event, body)
                             if parsed:
