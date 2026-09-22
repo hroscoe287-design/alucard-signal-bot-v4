@@ -234,6 +234,21 @@ class PocketOptionFeed:
                             msg = await ws.recv()
 
                             if isinstance(msg, bytes):
+                                parsed_binary = self._extract_binary_tick(msg)
+                                if parsed_binary:
+                                    asset, price, ts = parsed_binary
+                                    self.last_tick = time.time()
+                                    self.on_tick(asset, price, ts)
+                                    log.info(
+                                        "Pocket Option binary market tick received: %s %.8f",
+                                        asset,
+                                        price,
+                                    )
+                                else:
+                                    log.debug(
+                                        "Pocket Option binary frame received: %d bytes",
+                                        len(msg),
+                                    )
                                 continue
 
                             text_msg = str(msg)
@@ -261,6 +276,8 @@ class PocketOptionFeed:
                                 body = self._replace_placeholders(body, attachments)
 
                             parsed = self._extract_event(event, body)
+                            if not parsed and isinstance(body, (bytes, bytearray)):
+                                parsed = self._extract_binary_tick(bytes(body))
                             if parsed:
                                 asset, price, ts = parsed
                                 stamp = float(ts) if ts else time.time()
@@ -295,6 +312,29 @@ class PocketOptionFeed:
                 self.connected = False
                 self.authenticated = False
                 self.ws = None
+
+    def _extract_binary_tick(self, data):
+        """Decode Pocket Option's compact real-time price frame."""
+        if not isinstance(data, (bytes, bytearray)) or len(data) < 36:
+            return None
+        try:
+            import struct
+
+            _asset_id, price, timestamp, _volume, _change, _bid, _ask, _spread = (
+                struct.unpack("<IdIfffff", bytes(data[:36]))
+            )
+            price = self._number(price)
+            if price is None:
+                return None
+
+            stamp = float(timestamp)
+            if stamp > 10_000_000_000:
+                stamp /= 1000.0
+
+            # This connection is subscribed to one configured symbol.
+            return self.asset, price, stamp
+        except (struct.error, TypeError, ValueError, OverflowError):
+            return None
 
     def _extract_event(self, event, body):
         candidates = []
