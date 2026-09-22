@@ -27,6 +27,8 @@ class PocketOptionFeed:
         self.last_error = ""
         self.ws = None
         self._update_stream_samples = 0
+        self._update_stream_rejected_samples = 0
+        self._update_assets_samples = 0
 
     def _url(self):
         raw = self.url.strip()
@@ -359,6 +361,21 @@ class PocketOptionFeed:
                 return asset, price, ts
         return None
 
+    @staticmethod
+    def _safe_body_summary(body, limit=1600):
+        if isinstance(body, (bytes, bytearray)):
+            raw = bytes(body)
+            preview = raw[:limit]
+            try:
+                text = preview.decode("utf-8")
+                return f"bytes={len(raw)} utf8={text!r}"
+            except UnicodeDecodeError:
+                return f"bytes={len(raw)} hex={preview[:96].hex()}"
+        try:
+            return json.dumps(body, separators=(",", ":"), default=str)[:limit]
+        except Exception:
+            return repr(body)[:limit]
+
     async def run(self):
         self.running = True
         delay = 2
@@ -382,6 +399,8 @@ class PocketOptionFeed:
                     self.authenticated = False
                     self.last_error = ""
                     self._update_stream_samples = 0
+                    self._update_stream_rejected_samples = 0
+                    self._update_assets_samples = 0
                     delay = 2
 
                     await self._handshake(ws)
@@ -438,23 +457,21 @@ class PocketOptionFeed:
                                     attachments.append(await ws.recv())
                                 body = self._replace_placeholders(body, attachments)
 
-                            if event == "updateStream" and self._update_stream_samples < 3:
+                            if event == "updateAssets" and self._update_assets_samples < 2:
+                                self._update_assets_samples += 1
+                                log.info(
+                                    "Pocket Option updateAssets diagnostic %d: %s",
+                                    self._update_assets_samples,
+                                    self._safe_body_summary(body, 2200),
+                                )
+
+                            if event == "updateStream" and self._update_stream_samples < 5:
                                 self._update_stream_samples += 1
-                                try:
-                                    sample = json.dumps(body, separators=(",", ":"), default=str)
-                                except Exception:
-                                    sample = repr(body)
                                 log.info(
                                     "Pocket Option updateStream sample %d: %s",
                                     self._update_stream_samples,
-                                    sample[:2000],
+                                    self._safe_body_summary(body, 2200),
                                 )
-                                if isinstance(body, (bytes, bytearray)):
-                                    log.info(
-                                        "Pocket Option updateStream binary attachment %d bytes hex=%s",
-                                        len(body),
-                                        bytes(body)[:64].hex(),
-                                    )
 
                             log.info(
                                 "Pocket Option event received: %s body_type=%s attachments=%d",
@@ -482,7 +499,15 @@ class PocketOptionFeed:
                                     asset,
                                     price,
                                 )
-                            elif event in {"updateStream", "updateHistoryNewFast", "successauth"}:
+                            elif event == "updateStream":
+                                if self._update_stream_rejected_samples < 5:
+                                    self._update_stream_rejected_samples += 1
+                                    log.warning(
+                                        "Pocket Option rejected updateStream for %s: %s",
+                                        self.asset,
+                                        self._safe_body_summary(body, 1800),
+                                    )
+                            elif event in {"updateHistoryNewFast", "successauth"}:
                                 log.info("Pocket Option market event had no valid price: %s", event)
                     finally:
                         keepalive_task.cancel()
