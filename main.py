@@ -20,7 +20,9 @@ def on_history(candles):
 
 def on_tick(asset,price,ts):
  if asset and asset.lower()!=state["asset"].lower():return
- state["price"]=price;state["last_tick"]=ts;builder.update(price,ts)
+ state["price"]=price
+ state["last_tick"]=time.time()
+ builder.update(price,ts)
  result=calculate(builder.snapshot());state["indicators"]=result.get("values",{});state["signal"]=engine.evaluate(result)
 @app.on_event("startup")
 async def startup():
