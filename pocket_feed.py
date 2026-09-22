@@ -72,7 +72,11 @@ class PocketOptionFeed:
         return "42" + json.dumps([event, payload], separators=(",", ":"))
 
     async def _subscribe(self, ws):
-        # These are market-data subscriptions only. No order endpoint is used.
+        # Market-data subscriptions only. Keep the same events used by
+        # current community clients, with the asset subscription first.
+        await ws.send(self._event_packet("subscribeSymbol", {
+            "asset": self.asset,
+        }))
         await ws.send(self._event_packet("changeSymbol", {
             "asset": self.asset,
             "period": self.period,
@@ -80,9 +84,17 @@ class PocketOptionFeed:
         await ws.send(self._event_packet("subfor", {
             "asset": self.asset,
         }))
-        await ws.send(self._event_packet("subscribeSymbol", {
-            "asset": self.asset,
-        }))
+
+    async def _keepalive(self, ws):
+        """Send the Pocket Option application-level keepalive."""
+        while self.running and not ws.closed:
+            try:
+                await ws.send(self._event_packet("ps", {}))
+                await asyncio.sleep(15)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                return
 
     def _number(self, value):
         try:
@@ -317,44 +329,66 @@ class PocketOptionFeed:
                         self.period,
                     )
 
-                    while self.running:
-                        msg = await ws.recv()
+                    keepalive_task = asyncio.create_task(self._keepalive(ws))
+                    try:
+                        while self.running:
+                            msg = await ws.recv()
 
-                        if isinstance(msg, bytes):
-                            # Raw bytes are only meaningful as an attachment to
-                            # a preceding 45... packet. If one arrives alone,
-                            # ignore it rather than killing the feed.
-                            continue
+                            if isinstance(msg, bytes):
+                                continue
 
-                        text_msg = str(msg)
-                        if text_msg == "2":
-                            await ws.send("3")
-                            continue
-                        if text_msg.startswith("1"):
-                            raise RuntimeError(f"Pocket Option websocket closed: {text_msg[:200]}")
+                            text_msg = str(msg)
+                            if text_msg == "2":
+                                await ws.send("3")
+                                continue
+                            if text_msg == "3":
+                                continue
+                            if text_msg.startswith("1"):
+                                raise RuntimeError(
+                                    f"Pocket Option websocket closed: {text_msg[:200]}"
+                                )
 
-                        decoded = self._decode_socket_packet(text_msg)
-                        if decoded is None:
-                            continue
+                            decoded = self._decode_socket_packet(text_msg)
+                            if decoded is None:
+                                if text_msg:
+                                    log.debug(
+                                        "Pocket Option websocket message: %s",
+                                        text_msg[:180],
+                                    )
+                                continue
 
-                        event, body, count = decoded
-                        if count:
-                            attachments = []
-                            for _ in range(count):
-                                attachment = await ws.recv()
-                                attachments.append(attachment)
-                            body = self._replace_placeholders(body, attachments)
+                            event, body, count = decoded
+                            if count:
+                                attachments = []
+                                for _ in range(count):
+                                    attachments.append(await ws.recv())
+                                body = self._replace_placeholders(body, attachments)
 
-                        # Convert the reconstructed Socket.IO event back into
-                        # the shape understood by the existing price extractor.
-                        parsed = self._extract_event(event, body)
-                        if parsed:
-                            asset, price, ts = parsed
-                            stamp = float(ts) if ts else time.time()
-                            if stamp > 10_000_000_000:
-                                stamp /= 1000.0
-                            self.last_tick = time.time()
-                            self.on_tick(asset, price, stamp)
+                            parsed = self._extract_event(event, body)
+                            if parsed:
+                                asset, price, ts = parsed
+                                stamp = float(ts) if ts else time.time()
+                                if stamp > 10_000_000_000:
+                                    stamp /= 1000.0
+                                self.last_tick = time.time()
+                                self.on_tick(asset, price, stamp)
+                                log.debug(
+                                    "Pocket Option tick: %s %.8f",
+                                    asset,
+                                    price,
+                                )
+                            elif event in {
+                                "updateStream",
+                                "updateHistoryNewFast",
+                                "successauth",
+                            }:
+                                log.debug("Pocket Option event received: %s", event)
+                    finally:
+                        keepalive_task.cancel()
+                        try:
+                            await keepalive_task
+                        except asyncio.CancelledError:
+                            pass
 
             except asyncio.CancelledError:
                 raise
