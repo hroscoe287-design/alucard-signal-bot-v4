@@ -352,7 +352,17 @@ class PocketOptionFeed:
                                 )
 
                             decoded = self._decode_socket_packet(text_msg)
-                            if decoded is None:\n                                if text_msg:\n                                    log.info("Pocket Option non-event message: %s", text_msg[:180])\n                                continue\n\n                            event, body, count = decoded\n                            log.info("Pocket Option event received: %s body_type=%s", event, type(body).__name__)
+                            if decoded is None:
+                                if text_msg:
+                                    log.info("Pocket Option non-event message: %s", text_msg[:180])
+                                continue
+
+                            event, body, count = decoded
+                            log.info(
+                                "Pocket Option event received: %s body_type=%s",
+                                event,
+                                type(body).__name__,
+                            )
                             if count:
                                 attachments = []
                                 for _ in range(count):
