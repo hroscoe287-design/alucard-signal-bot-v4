@@ -4,11 +4,11 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn main:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
     envVars:
       - key: PO_WS_URL
-        value: wss://api-in.pocketoption.com:8095/socket.io/?EIO=3&transport=websocket
+        value: wss://api-us-south.po.market/socket.io/?EIO=4&transport=websocket
       - key: PO_AUTH_JSON
         sync: false
       - key: PO_ASSET
