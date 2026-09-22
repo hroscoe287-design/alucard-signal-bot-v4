@@ -13,6 +13,11 @@ engine=SignalEngine(settings.min_confidence)
 state={"asset":settings.asset,"price":None,"last_tick":0.0,"signal":{"signal":"WAIT","confidence":0,"reason":"Waiting for market data"},"indicators":{}}
 feed=None
 feed_task=None
+def on_history(candles):
+ loaded=builder.load_candles(candles)
+ if loaded:
+  result=calculate(builder.snapshot());state["indicators"]=result.get("values",{});state["signal"]=engine.evaluate(result)
+
 def on_tick(asset,price,ts):
  if asset and asset.lower()!=state["asset"].lower():return
  state["price"]=price;state["last_tick"]=ts;builder.update(price,ts)
@@ -20,7 +25,7 @@ def on_tick(asset,price,ts):
 @app.on_event("startup")
 async def startup():
  global feed,feed_task
- feed=PocketOptionFeed(settings.ws_url,settings.auth_json,on_tick);feed_task=asyncio.create_task(feed.run())
+ feed=PocketOptionFeed(settings.ws_url,settings.auth_json,on_tick,on_history);feed_task=asyncio.create_task(feed.run())
  logging.info("%s started; auth configured=%s",APP_NAME,bool(settings.auth_json))
 @app.on_event("shutdown")
 async def shutdown():
