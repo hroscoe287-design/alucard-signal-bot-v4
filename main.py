@@ -21,8 +21,14 @@ def refresh_entry_window(signal, candle_ts=None):
  if direction in ("CALL","PUT") and confidence >= settings.min_confidence:
   bucket=int((candle_ts or now)//tf)*tf
   candle_close=bucket+tf
+  # Timeframe-aware entry window: no fixed 12-second lock.
+  # Stronger signals receive more of the available candle, but never
+  # beyond the current candle close.
+  strength=max(0.0,min(1.0,(confidence-settings.min_confidence)/max(1.0,100.0-settings.min_confidence)))
+  window=max(5.0,min(tf*0.40,tf*(0.15+0.25*strength)))
+  proposed=min(candle_close,now+window)
   if state["entry_signal"] != direction or state["entry_until"] <= now:
-   state["entry_until"]=candle_close
+   state["entry_until"]=proposed
    state["entry_signal"]=direction
  else:
   state["entry_until"]=0.0
