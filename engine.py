@@ -1,8 +1,13 @@
 from datetime import datetime,timezone
 class SignalEngine:
- def __init__(self,min_confidence=60): self.min_confidence=min_confidence
+ def __init__(self,min_confidence=60):
+  self.min_confidence=min_confidence
+  self.last_signal="WAIT"
+
  def evaluate(self,ind):
-  if not ind.get("ready"): return {"signal":"WAIT","confidence":0,"reason":ind.get("reason","Insufficient data"),"votes":[]}
+  if not ind.get("ready"):
+   self.last_signal="WAIT"
+   return {"signal":"WAIT","confidence":0,"reason":ind.get("reason","Insufficient data"),"votes":[]}
   v=ind["values"]; call=put=0; votes=[]
   def vote(name,direction,w=1):
    nonlocal call,put
@@ -16,18 +21,21 @@ class SignalEngine:
   vote("CCI","CALL" if v["cci"]>0 else "PUT" if v["cci"]<0 else "WAIT")
   vote("Parabolic SAR","CALL" if v["price"]>v["psar"] else "PUT" if v["price"]<v["psar"] else "WAIT")
   vote("Alligator","CALL" if v["alligator_lips"]>v["alligator_teeth"]>v["alligator_jaw"] else "PUT" if v["alligator_lips"]<v["alligator_teeth"]<v["alligator_jaw"] else "WAIT",2)
-
-  fractal_direction = "CALL" if v.get("fractal_down") and not v.get("fractal_up") else "PUT" if v.get("fractal_up") and not v.get("fractal_down") else "WAIT"
+  fractal_direction="CALL" if v.get("fractal_down") and not v.get("fractal_up") else "PUT" if v.get("fractal_up") and not v.get("fractal_down") else "WAIT"
   vote("Fractal (2)",fractal_direction)
+  vote("Candle momentum","CALL" if v["price"]>v["ema9"] else "PUT" if v["price"]<v["ema9"] else "WAIT")
 
-  # Candle momentum is confirmation only; it cannot override the trend indicators.
-  vote("Candle momentum","CALL" if v.get("price",0)>v.get("ema9",0) else "PUT" if v.get("price",0)<v.get("ema9",0) else "WAIT")
+  # Bollinger Bands 20 / 2.0: low-weight confirmation, never a standalone signal.
+  bbdir="WAIT"
+  if v.get("bb_pct") is not None and v.get("bb_width") is not None:
+   if v["bb_pct"]>0.50 and v["price"]>=v["bb_mid"]: bbdir="CALL"
+   elif v["bb_pct"]<0.50 and v["price"]<=v["bb_mid"]: bbdir="PUT"
+  vote("Bollinger 20/2",bbdir)
 
-  total=11
+  total=12
   confidence=round(max(call,put)/total*100,1)
   signal="CALL" if call>put and confidence>=self.min_confidence else "PUT" if put>call and confidence>=self.min_confidence else "WAIT"
-  if signal=="WAIT":
-   reason=f"Insufficient agreement: CALL {call}/{total}, PUT {put}/{total}"
-  else:
-   reason=f"{signal} confirmation: CALL {call}/{total}, PUT {put}/{total}"
+  if signal=="WAIT": reason=f"Insufficient agreement: CALL {call}/{total}, PUT {put}/{total}"
+  else: reason=f"{signal} confirmation: CALL {call}/{total}, PUT {put}/{total}"
+  self.last_signal=signal
   return {"signal":signal,"confidence":confidence,"call_score":call,"put_score":put,"votes":votes,"reason":reason,"timestamp":datetime.now(timezone.utc).isoformat()}
