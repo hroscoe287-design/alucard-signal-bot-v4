@@ -63,7 +63,7 @@ async def health():
 @app.get("/api/state")
 async def api_state():
  age=time.time()-state["last_tick"] if state["last_tick"] else None
-  entry_remaining=max(0.0,state["entry_until"]-time.time()) if state["entry_until"] else 0.0
+ entry_remaining=max(0.0,state["entry_until"]-time.time()) if state["entry_until"] else 0.0
  if state["entry_until"] and (state["entry_signal"] != state["signal"].get("signal") or state["signal"].get("signal") not in ("CALL","PUT")):
   state["entry_until"]=0.0; state["entry_signal"]="WAIT"; entry_remaining=0.0
  return {"app":APP_NAME,"asset":state["asset"],"timeframe":state["timeframe"],"payout":settings.payout,"expiry":settings.expiry_minutes,"price":state["price"],"last_tick_age":age,"feed_connected":bool(feed and feed.connected),"candles":builder.snapshot()[-120:],"indicators":state["indicators"],"signal":state["signal"],"entry_remaining":round(entry_remaining,1),"entry_open":entry_remaining>0}
