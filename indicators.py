@@ -52,6 +52,29 @@ def bollinger(s,n=20,stds=2.0):
  pct=(s-lower)/(upper-lower).replace(0,np.nan)
  return mid,upper,lower,width,pct
 
+def stochastic(df,k_period=14,d_period=3,smooth=3):
+ close=df.close.astype(float)
+ low=df.low.rolling(k_period).min()
+ high=df.high.rolling(k_period).max()
+ k=100*(close-low)/(high-low).replace(0,np.nan)
+ k=k.rolling(smooth).mean()
+ d=k.rolling(d_period).mean()
+ return k,d
+
+def adx_dmi(df,n=14):
+ high=df.high.astype(float); low=df.low.astype(float); close=df.close.astype(float)
+ up=high.diff()
+ down=-low.diff()
+ plus_dm=up.where((up>down)&(up>0),0.0)
+ minus_dm=down.where((down>up)&(down>0),0.0)
+ tr=pd.concat([(high-low),(high-close.shift()).abs(),(low-close.shift()).abs()],axis=1).max(axis=1)
+ atr_w=tr.ewm(alpha=1/n,adjust=False).mean()
+ plus_di=100*plus_dm.ewm(alpha=1/n,adjust=False).mean()/atr_w.replace(0,np.nan)
+ minus_di=100*minus_dm.ewm(alpha=1/n,adjust=False).mean()/atr_w.replace(0,np.nan)
+ dx=100*(plus_di-minus_di).abs()/(plus_di+minus_di).replace(0,np.nan)
+ adx=dx.ewm(alpha=1/n,adjust=False).mean()
+ return adx,plus_di,minus_di
+
 def supertrend(df,period=10,multiplier=3.0):
  hl2=(df.high+df.low)/2.0
  a=atr(df,period)
@@ -84,6 +107,8 @@ def calculate(candles):
  atr_series=atr(df)
  atr_base=atr_series.rolling(50,min_periods=14).mean()
  st,st_dir=supertrend(df,10,3.0)
+ stoch_k,stoch_d=stochastic(df,14,3,3)
+ adx_series,plus_di,minus_di=adx_dmi(df,14)
  cci_series=cci(df,14)
  last=lambda s:float(s.iloc[-1]) if pd.notna(s.iloc[-1]) else None
  return {"ready":True,"values":{
@@ -94,5 +119,7 @@ def calculate(candles):
   "fractal_up":bool(fu.iloc[-3]),"fractal_down":bool(fd.iloc[-3]),
   "bb_mid":last(bbmid),"bb_upper":last(bbup),"bb_lower":last(bblow),
   "bb_width":last(bbwidth),"bb_pct":last(bbpct),
-  "supertrend":last(st),"supertrend_direction":int(st_dir.iloc[-1])
+  "supertrend":last(st),"supertrend_direction":int(st_dir.iloc[-1]),
+  "stoch_k":last(stoch_k),"stoch_d":last(stoch_d),
+  "adx":last(adx_series),"plus_di":last(plus_di),"minus_di":last(minus_di)
  }}
