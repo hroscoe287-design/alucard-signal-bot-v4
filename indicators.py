@@ -51,6 +51,30 @@ def bollinger(s,n=20,stds=2.0):
  pct=(s-lower)/(upper-lower).replace(0,np.nan)
  return mid,upper,lower,width,pct
 
+def supertrend(df,period=10,multiplier=3.0):
+ # Classic Supertrend: ATR(10), multiplier 3, HL2 source.
+ hl2=(df.high+df.low)/2.0
+ a=atr(df,period)
+ upper=hl2+multiplier*a
+ lower=hl2-multiplier*a
+ final_upper=upper.copy()
+ final_lower=lower.copy()
+ direction=pd.Series(1,index=df.index,dtype=int)
+ st=pd.Series(np.nan,index=df.index,dtype=float)
+ for i in range(1,len(df)):
+  prev=i-1
+  final_upper.iloc[i]=upper.iloc[i] if upper.iloc[i]<final_upper.iloc[prev] or df.close.iloc[prev]>final_upper.iloc[prev] else final_upper.iloc[prev]
+  final_lower.iloc[i]=lower.iloc[i] if lower.iloc[i]>final_lower.iloc[prev] or df.close.iloc[prev]<final_lower.iloc[prev] else final_lower.iloc[prev]
+  if pd.isna(a.iloc[i]):
+   direction.iloc[i]=direction.iloc[prev]
+  elif st.iloc[prev] == final_upper.iloc[prev]:
+   direction.iloc[i]=1 if df.close.iloc[i]>final_upper.iloc[i] else -1
+  else:
+   direction.iloc[i]=-1 if df.close.iloc[i]<final_lower.iloc[i] else 1
+  st.iloc[i]=final_lower.iloc[i] if direction.iloc[i]==1 else final_upper.iloc[i]
+ st.iloc[0]=final_lower.iloc[0]
+ return st,direction
+
 def calculate(candles):
  if len(candles)<35:return {"ready":False,"reason":"Need at least 35 candles","values":{}}
  df=pd.DataFrame(candles); close=df.close.astype(float)
@@ -59,6 +83,7 @@ def calculate(candles):
  bbmid,bbup,bblow,bbwidth,bbpct=bollinger(close,20,2.0)
  atr_series=atr(df)
  atr_base=atr_series.rolling(50,min_periods=14).mean()
+ st,st_dir=supertrend(df,10,3.0)
  last=lambda s:float(s.iloc[-1]) if pd.notna(s.iloc[-1]) else None
  return {"ready":True,"values":{
   "price":float(close.iloc[-1]),"ema9":last(e9),"ema20":last(e20),"ema50":last(e50),
@@ -67,5 +92,6 @@ def calculate(candles):
   "alligator_jaw":last(jaw),"alligator_teeth":last(teeth),"alligator_lips":last(lips),
   "fractal_up":bool(fu.iloc[-3]),"fractal_down":bool(fd.iloc[-3]),
   "bb_mid":last(bbmid),"bb_upper":last(bbup),"bb_lower":last(bblow),
-  "bb_width":last(bbwidth),"bb_pct":last(bbpct)
+  "bb_width":last(bbwidth),"bb_pct":last(bbpct),
+  "supertrend":last(st),"supertrend_direction":int(st_dir.iloc[-1])
  }}
