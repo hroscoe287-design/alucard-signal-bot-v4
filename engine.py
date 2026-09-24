@@ -64,8 +64,13 @@ class SignalEngine:
        else "WAIT",10)
 
   av=v.get("atr"); ab=v.get("atr_baseline")
-  atr_active=av is not None and ab is not None and av>=ab
-  atr_dir="CALL" if atr_active and v["price"]>v["ema9"] else "PUT" if atr_active and v["price"]<v["ema9"] else "WAIT"
+  # ATR is now a soft volatility filter instead of a hard signal gate.
+  # Normal/low volatility can still participate when directional evidence agrees.
+  # Only very low volatility suppresses the ATR vote itself.
+  atr_ratio=(av/ab) if av is not None and ab not in (None,0) else None
+  atr_active=atr_ratio is not None and atr_ratio>=0.85
+  atr_very_low=atr_ratio is not None and atr_ratio<0.70
+  atr_dir="CALL" if not atr_very_low and v["price"]>v["ema9"] else "PUT" if not atr_very_low and v["price"]<v["ema9"] else "WAIT"
   vote("ATR (14)",atr_dir,5)
 
   st=v.get("supertrend"); st_dir=v.get("supertrend_direction")
@@ -164,7 +169,9 @@ class SignalEngine:
   self.last_signal=signal
   return {
    "signal":signal,"confidence":confidence,"agreement_count":directional_votes,"agreement_total":10,
-   "call_score":round(call,1),"put_score":round(put,1),"max_score":100,"atr_active":atr_active,
+   "call_score":round(call,1),"put_score":round(put,1),"max_score":100,
+   "atr_active":atr_active,"atr_ratio":round(atr_ratio,2) if atr_ratio is not None else None,
+   "atr_very_low":atr_very_low,
    "adx":adx,"plus_di":plus_di,"minus_di":minus_di,"stoch_k":sk,"stoch_d":sd,
    "dmi_direction":dmi_dir,"stoch_direction":stoch_dir,
    "confirmation_bonus":round(confirmation_bonus,1),"momentum_bonus":round(momentum_bonus,1),"momentum_side":momentum_side,"momentum_same_count":momentum_same_count,\n   "conflict_penalty":round(conflict_penalty,1),
