@@ -5,7 +5,8 @@ from config import APP_NAME,ASSETS,TIMEFRAMES,settings
 from candles import CandleBuilder
 from indicators import calculate
 from engine import SignalEngine
-from pocket_feed import PocketOptionFeed\nfrom ai_reviewer import AIReviewer
+from pocket_feed import PocketOptionFeed
+from ai_reviewer import AIReviewer
 logging.basicConfig(level=logging.INFO)
 app=FastAPI(title=APP_NAME)
 builder=CandleBuilder(TIMEFRAMES.get(settings.timeframe,60),settings.history_size)
@@ -34,7 +35,41 @@ def refresh_entry_window(signal, candle_ts=None):
   state["entry_until"]=0.0
   state["entry_signal"]="WAIT"
 
-\nasync def ai_confirm(asset, timeframe, candidate, engine_result, indicators, candles, generation):\n global ai_busy\n try:\n  review=await asyncio.to_thread(ai_reviewer.review,asset,timeframe,engine_result,indicators,candles)\n  if generation!=ai_generation:return\n  state["ai_review"]=review\n  if review.get("decision") in ("CALL","PUT") and review.get("decision")==candidate:\n   state["signal"]["ai_confirmation"]="CONFIRMED"\n   state["signal"]["ai_decision"]=review["decision"]\n   state["signal"]["ai_reason"]=review.get("reason","AI confirmed")\n  elif review.get("decision")=="WAIT":\n   state["signal"]["signal"]="WAIT"\n   state["signal"]["ai_confirmation"]="REJECTED"\n   state["signal"]["ai_decision"]="WAIT"\n   state["signal"]["ai_reason"]=review.get("reason","AI did not confirm")\n  else:\n   state["signal"]["signal"]="WAIT"\n   state["signal"]["ai_confirmation"]="CONFLICT"\n   state["signal"]["ai_decision"]=review.get("decision","WAIT")\n   state["signal"]["ai_reason"]=review.get("reason","AI direction conflicted")\n  refresh_entry_window(state["signal"],time.time())\n finally:\n  ai_busy=False\n\ndef schedule_ai_review():\n global ai_busy,ai_generation\n candidate=state["signal"].get("signal","WAIT")\n if candidate not in ("CALL","PUT") or ai_busy or not ai_reviewer.enabled or not ai_reviewer.api_key:return\n ai_busy=True\n ai_generation+=1\n generation=ai_generation\n asyncio.create_task(ai_confirm(state["asset"],state["timeframe"],candidate,dict(state["signal"]),dict(state["indicators"]),builder.snapshot()[-8:],generation))\n\ndef on_history(candles):
+
+async def ai_confirm(asset, timeframe, candidate, engine_result, indicators, candles, generation):
+ global ai_busy
+ try:
+  review=await asyncio.to_thread(ai_reviewer.review,asset,timeframe,engine_result,indicators,candles)
+  if generation!=ai_generation:return
+  state["ai_review"]=review
+  if review.get("decision") in ("CALL","PUT") and review.get("decision")==candidate:
+   state["signal"]["ai_confirmation"]="CONFIRMED"
+   state["signal"]["ai_decision"]=review["decision"]
+   state["signal"]["ai_reason"]=review.get("reason","AI confirmed")
+  elif review.get("decision")=="WAIT":
+   state["signal"]["signal"]="WAIT"
+   state["signal"]["ai_confirmation"]="REJECTED"
+   state["signal"]["ai_decision"]="WAIT"
+   state["signal"]["ai_reason"]=review.get("reason","AI did not confirm")
+  else:
+   state["signal"]["signal"]="WAIT"
+   state["signal"]["ai_confirmation"]="CONFLICT"
+   state["signal"]["ai_decision"]=review.get("decision","WAIT")
+   state["signal"]["ai_reason"]=review.get("reason","AI direction conflicted")
+  refresh_entry_window(state["signal"],time.time())
+ finally:
+  ai_busy=False
+
+def schedule_ai_review():
+ global ai_busy,ai_generation
+ candidate=state["signal"].get("signal","WAIT")
+ if candidate not in ("CALL","PUT") or ai_busy or not ai_reviewer.enabled or not ai_reviewer.api_key:return
+ ai_busy=True
+ ai_generation+=1
+ generation=ai_generation
+ asyncio.create_task(ai_confirm(state["asset"],state["timeframe"],candidate,dict(state["signal"]),dict(state["indicators"]),builder.snapshot()[-8:],generation))
+
+def on_history(candles):
  loaded=builder.load_candles(candles)
  if loaded:
   result=calculate(builder.snapshot())
@@ -91,7 +126,8 @@ async def config(request:Request):
  state["indicators"]={}
  state["entry_until"]=0.0
  state["entry_signal"]="WAIT"
- state["signal"]={"signal":"WAIT","confidence":0,"reason":"Loading selected market data","votes":[]}\n state["ai_review"]={"enabled":False,"decision":"NO_REVIEW","reason":"AI confirmation not configured"}
+ state["signal"]={"signal":"WAIT","confidence":0,"reason":"Loading selected market data","votes":[]}
+ state["ai_review"]={"enabled":False,"decision":"NO_REVIEW","reason":"AI confirmation not configured"}
  if feed:
   try:
    await feed.change_subscription(new_asset,TIMEFRAMES[new_tf])
@@ -106,7 +142,9 @@ const $=x=>document.getElementById(x);
 async function init(){const a=await fetch('/api/assets').then(r=>r.json());for(const[g,items]of Object.entries(a.assets)){const o=document.createElement('optgroup');o.label=g;items.forEach(v=>{const q=document.createElement('option');q.value=v;q.textContent=v;o.appendChild(q)});$('asset').appendChild(o)}$('asset').value='EURUSD_otc';a.timeframes.forEach(v=>{const q=document.createElement('option');q.value=v;q.textContent=v;$('tf').appendChild(q)});$('tf').value='1m';poll()}
 async function applyCfg(){const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asset:$('asset').value,timeframe:$('tf').value})});const d=await r.json();if(!d.ok)alert(d.error||'Configuration change failed')}
 function draw(c){$('chart').innerHTML=c.map(x=>'<div class="bar '+(x.close>=x.open?'up':'down')+'" style="height:'+Math.max(6,Math.min(100,Math.abs(x.close-x.open)/(x.high-x.low||1)*100))+'%"></div>').join('')}
-function updateClock(){const d=new Date();$('clock').textContent=d.toLocaleTimeString([], {hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});}\nsetInterval(updateClock,250);updateClock();\nasync function poll(){try{const[s,h]=await Promise.all([fetch('/api/state').then(r=>r.json()),fetch('/api/health').then(r=>r.json())]);$('as').textContent=s.asset;$('price').textContent=s.price??'—';$('feed').textContent='FEED: '+h.feed;$('eng').textContent='ENGINE: '+h.engine;const z=s.signal||{};$('sig').textContent=z.signal||'WAIT';const rem=Math.max(0,s.entry_remaining||0);$('count').textContent=(z.signal==='CALL'||z.signal==='PUT')&&rem>0?('00:'+String(Math.ceil(rem)).padStart(2,'0')):'00:00';$('entryStatus').textContent=(z.signal==='CALL'||z.signal==='PUT')&&rem>0?'ENTRY OPEN — VALIDATION ACTIVE':'ENTRY CLOSED — WAIT FOR NEXT SIGNAL';$('sig').className='value signal '+(z.signal||'WAIT').toLowerCase();$('conf').textContent=(z.confidence||0)+'%';$('reason').textContent=z.reason||'';const ai=s.ai_review||{};$('ai').textContent=ai.enabled?(ai.decision||'WAIT')+' • '+(ai.reason||''):'NOT CONFIGURED';draw(s.candles||[]);const v=s.indicators||{};const rows=[['EMA 9 / 20 / 50',v.ema9?[v.ema9,v.ema20,v.ema50].map(x=>x.toFixed(5)).join(' / '):'—'],['Alligator',v.alligator_lips?[v.alligator_lips,v.alligator_teeth,v.alligator_jaw].map(x=>x.toFixed(5)).join(' / '):'—'],['Parabolic SAR',v.psar?.toFixed(5)||'—'],['MACD histogram',v.macd_hist?.toFixed(5)||'—'],['RSI',v.rsi?.toFixed(2)||'—'],['CCI',v.cci?.toFixed(2)||'—'],['Bollinger 20/2',v.bb_pct!=null?('%B '+v.bb_pct.toFixed(2)+' • W '+v.bb_width.toFixed(4)):'—'],['ADX / DMI',v.adx!=null?('ADX '+v.adx.toFixed(1)+' • +DI '+v.plus_di.toFixed(1)+' • -DI '+v.minus_di.toFixed(1)):'—'],['Stochastic',v.stoch_k!=null?('%K '+v.stoch_k.toFixed(1)+' • %D '+v.stoch_d.toFixed(1)):'—']];$('matrix').innerHTML=rows.map(r=>'<div><b>'+r[0]+'</b><br>'+r[1]+'</div>').join('')}catch(e){}setTimeout(poll,1000)}init()
+function updateClock(){const d=new Date();$('clock').textContent=d.toLocaleTimeString([], {hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});}
+setInterval(updateClock,250);updateClock();
+async function poll(){try{const[s,h]=await Promise.all([fetch('/api/state').then(r=>r.json()),fetch('/api/health').then(r=>r.json())]);$('as').textContent=s.asset;$('price').textContent=s.price??'—';$('feed').textContent='FEED: '+h.feed;$('eng').textContent='ENGINE: '+h.engine;const z=s.signal||{};$('sig').textContent=z.signal||'WAIT';const rem=Math.max(0,s.entry_remaining||0);$('count').textContent=(z.signal==='CALL'||z.signal==='PUT')&&rem>0?('00:'+String(Math.ceil(rem)).padStart(2,'0')):'00:00';$('entryStatus').textContent=(z.signal==='CALL'||z.signal==='PUT')&&rem>0?'ENTRY OPEN — VALIDATION ACTIVE':'ENTRY CLOSED — WAIT FOR NEXT SIGNAL';$('sig').className='value signal '+(z.signal||'WAIT').toLowerCase();$('conf').textContent=(z.confidence||0)+'%';$('reason').textContent=z.reason||'';const ai=s.ai_review||{};$('ai').textContent=ai.enabled?(ai.decision||'WAIT')+' • '+(ai.reason||''):'NOT CONFIGURED';draw(s.candles||[]);const v=s.indicators||{};const rows=[['EMA 9 / 20 / 50',v.ema9?[v.ema9,v.ema20,v.ema50].map(x=>x.toFixed(5)).join(' / '):'—'],['Alligator',v.alligator_lips?[v.alligator_lips,v.alligator_teeth,v.alligator_jaw].map(x=>x.toFixed(5)).join(' / '):'—'],['Parabolic SAR',v.psar?.toFixed(5)||'—'],['MACD histogram',v.macd_hist?.toFixed(5)||'—'],['RSI',v.rsi?.toFixed(2)||'—'],['CCI',v.cci?.toFixed(2)||'—'],['Bollinger 20/2',v.bb_pct!=null?('%B '+v.bb_pct.toFixed(2)+' • W '+v.bb_width.toFixed(4)):'—'],['ADX / DMI',v.adx!=null?('ADX '+v.adx.toFixed(1)+' • +DI '+v.plus_di.toFixed(1)+' • -DI '+v.minus_di.toFixed(1)):'—'],['Stochastic',v.stoch_k!=null?('%K '+v.stoch_k.toFixed(1)+' • %D '+v.stoch_d.toFixed(1)):'—']];$('matrix').innerHTML=rows.map(r=>'<div><b>'+r[0]+'</b><br>'+r[1]+'</div>').join('')}catch(e){}setTimeout(poll,1000)}init()
 </script></body></html>'''
 @app.get("/",response_class=HTMLResponse)
 async def home():return HTML
