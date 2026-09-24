@@ -40,12 +40,14 @@ class SignalEngine:
    spread=max(abs(lips-jaw),abs(teeth-jaw),abs(lips-teeth))
    width_ratio=(spread/atr) if atr>0 else 0
    base="CALL" if lips>teeth>jaw else "PUT" if lips<teeth<jaw else "WAIT"
+   alligator_dir=base
    if base!="WAIT":
     factor=min(1.0,max(0.30,width_ratio/1.5))
     vote("Alligator",base,15.0*factor)
    else:
     vote("Alligator","WAIT",0)
   else:
+   alligator_dir="WAIT"
    vote("Alligator","WAIT",0)
 
   # 2) EMA 9/20/50 — trend confirmation.
@@ -107,16 +109,25 @@ class SignalEngine:
   weighted_margin=leader-opposing
   strong_margin=weighted_margin>=15
 
+  # Small V4 confirmation improvement: require at least 2 of the 3
+  # primary trend indicators (Alligator, EMA, Supertrend) to agree with
+  # the leading direction. This does not add points, so max_score stays 100
+  # and confidence remains the simple 10-indicator agreement percentage.
+  trend_votes=sum(1 for x in (alligator_dir,ema_dir,super_dir) if x==leader_direction)
+  trend_aligned=trend_votes>=2
+
   # ATR must be active so high agreement does not fire in dead volatility.
-  if leader_direction!="WAIT" and confidence>=self.min_confidence and strong_margin and atr_active:
+  if leader_direction!="WAIT" and confidence>=self.min_confidence and strong_margin and atr_active and trend_aligned:
    signal=leader_direction
-   reason=f"{signal} confirmation: {directional_votes}/10 indicators agree ({confidence:.0f}%), weighted score {leader:.1f}/100"
+   reason=f"{signal} confirmation: {directional_votes}/10 indicators agree ({confidence:.0f}%), trend alignment {trend_votes}/3, weighted score {leader:.1f}/100"
   else:
    signal="WAIT"
    if not atr_active:
     reason="WAIT: volatility filter is inactive; ATR is not above its baseline"
    elif leader_direction=="WAIT":
     reason="WAIT: indicators are evenly split"
+   elif not trend_aligned:
+    reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); only {trend_votes}/3 primary trend indicators agree; trend alignment gate not met"
    else:
     reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); weighted margin {weighted_margin:.1f}; confirmation gate not met"
 
