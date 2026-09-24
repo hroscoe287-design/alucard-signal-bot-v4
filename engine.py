@@ -22,11 +22,16 @@ class SignalEngine:
     put+=weight
    votes.append({"name":name,"direction":direction,"weight":round(weight,1)})
 
-  # ALUCARD V4 TEST SCORING:
-  # 9 indicators = 100 weighted points.
-  # Alligator receives the strongest trend influence, but its weight is
-  # reduced when the lines are compressed. ATR confirms active movement
-  # and only becomes directional when volatility is active.
+  # ALUCARD V4: 10 independent indicator votes, 100 weighted points.
+  # Confidence is agreement count, not weighted score:
+  # 10/10 = 100%, 9/10 = 90%, 8/10 = 80%, etc.
+  #
+  # Supertrend uses the widely used ATR 10 / multiplier 3.0 configuration.
+  # There is no universally best setting; 10/3 is the standard baseline
+  # used by major charting platforms and technical references.
+
+  # 1) Williams Alligator — strongest trend influence.
+  # Tight/compressed lines automatically reduce its weight.
   jaw=v.get("alligator_jaw")
   teeth=v.get("alligator_teeth")
   lips=v.get("alligator_lips")
@@ -36,7 +41,6 @@ class SignalEngine:
    width_ratio=(spread/atr) if atr>0 else 0
    base="CALL" if lips>teeth>jaw else "PUT" if lips<teeth<jaw else "WAIT"
    if base!="WAIT":
-    # Tight Alligator = weak trend. Wide, ordered lines = strong trend.
     factor=min(1.0,max(0.30,width_ratio/1.5))
     vote("Alligator",base,15.0*factor)
    else:
@@ -44,24 +48,29 @@ class SignalEngine:
   else:
    vote("Alligator","WAIT",0)
 
+  # 2) EMA 9/20/50 — trend confirmation.
   ema_dir="CALL" if v["ema9"]>v["ema20"]>v["ema50"] else "PUT" if v["ema9"]<v["ema20"]<v["ema50"] else "WAIT"
   vote("EMA 9/20/50",ema_dir,15)
 
+  # 3) Fractal period 2 — swing confirmation.
   fd="CALL" if v.get("fractal_down") and not v.get("fractal_up") else "PUT" if v.get("fractal_up") and not v.get("fractal_down") else "WAIT"
-  vote("Fractal (2)",fd,10)
+  vote("Fractal (2)",fd,5)
 
+  # 4) Parabolic SAR — direction confirmation.
   vote("Parabolic SAR","CALL" if v["price"]>v["psar"] else "PUT" if v["price"]<v["psar"] else "WAIT",10)
 
-  vote("MACD","CALL" if v["macd_hist"]>0 else "PUT" if v["macd_hist"]<0 else "WAIT",10)
+  # 5) MACD 12/26/9 — momentum.
+  vote("MACD 12/26/9","CALL" if v["macd_hist"]>0 else "PUT" if v["macd_hist"]<0 else "WAIT",10)
 
+  # 6) RSI 14 — directional momentum.
   r=v.get("rsi")
-  # 50 is the directional center; extreme readings don't automatically
-  # reverse the signal because overbought/oversold can persist in trends.
   vote("RSI (14)","CALL" if r is not None and r>50 else "PUT" if r is not None and r<50 else "WAIT",10)
 
+  # 7) CCI 14 — momentum confirmation.
   cci=v.get("cci")
   vote("CCI (14)","CALL" if cci is not None and cci>0 else "PUT" if cci is not None and cci<0 else "WAIT",10)
 
+  # 8) Bollinger Bands 20/2 — price-position confirmation.
   bp=v.get("bb_pct")
   bm=v.get("bb_mid")
   vote("Bollinger 20/2",
@@ -69,44 +78,54 @@ class SignalEngine:
        else "PUT" if bp is not None and bm is not None and bp<0.50 and v["price"]<=bm
        else "WAIT",10)
 
+  # 9) ATR 14 — volatility filter + directional confirmation.
   av=v.get("atr")
   ab=v.get("atr_baseline")
   atr_active=av is not None and ab is not None and av>=ab
   atr_dir="CALL" if atr_active and v["price"]>v["ema9"] else "PUT" if atr_active and v["price"]<v["ema9"] else "WAIT"
-  vote("ATR (14)",atr_dir,10)
+  vote("ATR (14)",atr_dir,5)
 
-  # Agreement percentage is strictly the number of directional indicators
-  # pointing the same way out of the 9-indicator model.
+  # 10) Supertrend — ATR 10 / multiplier 3.0.
+  # direction +1 is bullish and -1 is bearish in our implementation.
+  st=v.get("supertrend")
+  st_dir=v.get("supertrend_direction")
+  if st is not None and st_dir is not None:
+   super_dir="CALL" if int(st_dir)==1 and v["price"]>st else "PUT" if int(st_dir)==-1 and v["price"]<st else "WAIT"
+  else:
+   super_dir="WAIT"
+  vote("Supertrend 10/3",super_dir,10)
+
   leader_direction="CALL" if call>put else "PUT" if put>call else "WAIT"
+
+  # Every indicator has exactly one vote. Confidence is the percentage
+  # of the 10 indicators agreeing with the leading direction.
   directional_votes=sum(1 for x in votes if x["direction"]==leader_direction)
-  confidence=round(directional_votes/9*100,1)
+  confidence=round(directional_votes/10*100,1)
 
   leader=max(call,put)
   opposing=min(call,put)
   weighted_margin=leader-opposing
-
-  # Strong-signal gate: agreement plus weighted confirmation plus active ATR.
-  # This prevents a high agreement count from firing during a compressed,
-  # low-volatility market.
   strong_margin=weighted_margin>=15
+
+  # ATR must be active so high agreement does not fire in dead volatility.
   if leader_direction!="WAIT" and confidence>=self.min_confidence and strong_margin and atr_active:
    signal=leader_direction
-   reason=f"{signal} confirmation: {directional_votes}/9 indicators agree ({confidence:.0f}%), weighted score {leader:.1f}/100"
+   reason=f"{signal} confirmation: {directional_votes}/10 indicators agree ({confidence:.0f}%), weighted score {leader:.1f}/100"
   else:
    signal="WAIT"
    if not atr_active:
-    reason=f"WAIT: volatility filter is inactive; ATR is not above its baseline"
+    reason="WAIT: volatility filter is inactive; ATR is not above its baseline"
    elif leader_direction=="WAIT":
     reason="WAIT: indicators are evenly split"
    else:
-    reason=f"WAIT: {directional_votes}/9 agree ({confidence:.0f}%); weighted margin {weighted_margin:.1f}; confirmation gate not met"
+    reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); weighted margin {weighted_margin:.1f}; confirmation gate not met"
 
   self.last_signal=signal
   return {
    "signal":signal,
    "confidence":confidence,
    "agreement_count":directional_votes,
-   "agreement_total":9,
+   "agreement_total":10,
    "call_score":round(call,1),
    "put_score":round(put,1),
    "max_score":100,
