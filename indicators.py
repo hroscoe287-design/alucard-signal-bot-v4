@@ -57,11 +57,13 @@ def calculate(candles):
  e9,e20,e50=ema(close,9),ema(close,20),ema(close,50)
  m,ms,mh=macd(close); ps=psar(df); jaw,teeth,lips=alligator(df); fu,fd=fractal(df,2)
  bbmid,bbup,bblow,bbwidth,bbpct=bollinger(close,20,2.0)
+ atr_series=atr(df)
+ atr_base=atr_series.rolling(50,min_periods=14).mean()
  last=lambda s:float(s.iloc[-1]) if pd.notna(s.iloc[-1]) else None
  return {"ready":True,"values":{
   "price":float(close.iloc[-1]),"ema9":last(e9),"ema20":last(e20),"ema50":last(e50),
   "macd":last(m),"macd_signal":last(ms),"macd_hist":last(mh),"rsi":last(rsi(close)),
-  "cci":last(cci(df)),"atr":last(atr(df)),"psar":last(ps),
+  "cci":last(cci(df)),"atr":last(atr_series),"atr_baseline":last(atr_base),"psar":last(ps),
   "alligator_jaw":last(jaw),"alligator_teeth":last(teeth),"alligator_lips":last(lips),
   "fractal_up":bool(fu.iloc[-3]),"fractal_down":bool(fd.iloc[-3]),
   "bb_mid":last(bbmid),"bb_upper":last(bbup),"bb_lower":last(bblow),
