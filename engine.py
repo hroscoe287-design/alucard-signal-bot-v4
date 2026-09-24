@@ -105,7 +105,16 @@ class SignalEngine:
     elif stoch_dir in ("CALL","PUT") and ((leader_direction=="CALL" and sk>15) or (leader_direction=="PUT" and sk<85)):
      conflict_penalty+=2.0
 
-  # REAL-TIME CANDLE MOMENTUM: gives the newest 2-3 candles limited early influence\n  # without changing the 10-indicator / 100-point model.\n  m1=v.get("momentum_1") or 0.0; m2=v.get("momentum_2") or 0.0; m3=v.get("momentum_3") or 0.0\n  momentum_side="CALL" if m1>0 and m2>0 and m3>0 else "PUT" if m1<0 and m2<0 and m3<0 else "WAIT"\n  momentum_strength=(abs(m1)+abs(m2)+abs(m3)) if momentum_side!="WAIT" else 0.0\n  momentum_same_count=sum(1 for x in (m1,m2,m3) if (x>0 if momentum_side=="CALL" else x<0)) if momentum_side!="WAIT" else 0\n  momentum_bonus=0.0\n  if leader_direction in ("CALL","PUT") and momentum_side==leader_direction and momentum_same_count>=2:\n   momentum_bonus=min(4.0, 1.5 + momentum_same_count*0.8)\n  adjusted_margin=weighted_margin+confirmation_bonus+momentum_bonus-conflict_penalty
+  # REAL-TIME CANDLE MOMENTUM: gives the newest 2-3 candles limited early influence
+  # without changing the 10-indicator / 100-point model.
+  m1=v.get("momentum_1") or 0.0; m2=v.get("momentum_2") or 0.0; m3=v.get("momentum_3") or 0.0
+  momentum_side="CALL" if m1>0 and m2>0 and m3>0 else "PUT" if m1<0 and m2<0 and m3<0 else "WAIT"
+  momentum_strength=(abs(m1)+abs(m2)+abs(m3)) if momentum_side!="WAIT" else 0.0
+  momentum_same_count=sum(1 for x in (m1,m2,m3) if (x>0 if momentum_side=="CALL" else x<0)) if momentum_side!="WAIT" else 0
+  momentum_bonus=0.0
+  if leader_direction in ("CALL","PUT") and momentum_side==leader_direction and momentum_same_count>=2:
+   momentum_bonus=min(4.0, 1.5 + momentum_same_count*0.8)
+  adjusted_margin=weighted_margin+confirmation_bonus+momentum_bonus-conflict_penalty
   strong_margin=adjusted_margin>=13
   trend_votes=sum(1 for x in (alligator_dir,ema_dir,super_dir) if x==leader_direction)
   trend_aligned=trend_votes>=2
@@ -176,7 +185,8 @@ class SignalEngine:
    "atr_very_low":atr_very_low,
    "adx":adx,"plus_di":plus_di,"minus_di":minus_di,"stoch_k":sk,"stoch_d":sd,
    "dmi_direction":dmi_dir,"stoch_direction":stoch_dir,
-   "confirmation_bonus":round(confirmation_bonus,1),"momentum_bonus":round(momentum_bonus,1),"momentum_side":momentum_side,"momentum_same_count":momentum_same_count,\n   "conflict_penalty":round(conflict_penalty,1),
+   "confirmation_bonus":round(confirmation_bonus,1),"momentum_bonus":round(momentum_bonus,1),"momentum_side":momentum_side,"momentum_same_count":momentum_same_count,
+   "conflict_penalty":round(conflict_penalty,1),
    "reversal_conflict":reversal_conflict,"effective_min_confidence":effective_min_confidence,
    "developing_signal":self.developing_side,"developing_strength":round(self.developing_strength,2),
    "developing_age":round(developing_age,1),"early_confirmation":early_ok,
