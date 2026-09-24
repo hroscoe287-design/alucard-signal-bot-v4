@@ -68,8 +68,10 @@ class SignalEngine:
   # Normal/low volatility can still participate when directional evidence agrees.
   # Only very low volatility suppresses the ATR vote itself.
   atr_ratio=(av/ab) if av is not None and ab not in (None,0) else None
-  atr_active=atr_ratio is not None and atr_ratio>=0.85
-  atr_very_low=atr_ratio is not None and atr_ratio<0.70
+  atr_active=atr_ratio is not None and atr_ratio>=0.80
+  # Only severe compression blocks the ATR contribution. 0.60-0.80 is a
+  # soft-volatility regime and can still produce a signal when direction agrees.
+  atr_very_low=atr_ratio is not None and atr_ratio<0.60
   atr_dir="CALL" if not atr_very_low and v["price"]>v["ema9"] else "PUT" if not atr_very_low and v["price"]<v["ema9"] else "WAIT"
   vote("ATR (14)",atr_dir,5)
 
@@ -138,8 +140,8 @@ class SignalEngine:
   # adjusted margin >=9, persistent candidate, no strong reversal conflict.
   early_ok=(
    raw_candidate!="WAIT" and candidate_persistent
-   and confidence>=max(80.0,self.min_confidence-4)
-   and trend_aligned and adjusted_margin>=8.0
+   and confidence>=max(70.0,self.min_confidence-8)
+   and trend_aligned and adjusted_margin>=6.0
    and not reversal_conflict
   )
 
@@ -161,7 +163,7 @@ class SignalEngine:
    signal="WAIT"
    if not trend_aligned: reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); primary trend is not aligned enough"
    elif leader_direction=="WAIT": reason="WAIT: indicators are evenly split"
-   elif adjusted_margin < 8.0: reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); directional margin {adjusted_margin:.1f} is too narrow"
+   elif adjusted_margin < 6.0: reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); directional margin {adjusted_margin:.1f} is too narrow"
    elif raw_candidate==self.developing_side and self.developing_strength>0:
     reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); developing {raw_candidate} strength {self.developing_strength:.2f}"
    else: reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); adjusted margin {adjusted_margin:.1f}; confirmation gate not met"
