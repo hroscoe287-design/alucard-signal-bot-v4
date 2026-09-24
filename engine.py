@@ -1,7 +1,7 @@
 from datetime import datetime,timezone
 
 class SignalEngine:
- def __init__(self,min_confidence=60):
+ def __init__(self,min_confidence=75):
   self.min_confidence=min_confidence
   self.last_signal="WAIT"
 
@@ -39,8 +39,37 @@ class SignalEngine:
   vote("ATR volatility",ad,5)
   vote("Supertrend","CALL" if v.get("supertrend_direction")==1 and v.get("supertrend") is not None and v["price"]>v["supertrend"] else "PUT" if v.get("supertrend_direction")==-1 and v.get("supertrend") is not None and v["price"]<v["supertrend"] else "WAIT",5)
 
-  total=100; leader=max(call,put); confidence=round(leader/total*100,1)
-  signal="CALL" if call>put and confidence>=self.min_confidence else "PUT" if put>call and confidence>=self.min_confidence else "WAIT"
-  reason=f"Insufficient agreement: CALL {call:.1f}/{total}, PUT {put:.1f}/{total}" if signal=="WAIT" else f"{signal} confirmation: CALL {call:.1f}/{total}, PUT {put:.1f}/{total}"
+  total=100
+  leader=max(call,put)
+  opposing=min(call,put)
+  confidence=round(leader/total*100,1)
+  leader_direction="CALL" if call>put else "PUT" if put>call else "WAIT"
+
+  # Strong-signal gate:
+  # 1) confidence must reach 75%
+  # 2) the leader must beat the opposing side by at least 15 points
+  # 3) at least 4 indicators must agree with the leader
+  leader_votes=sum(1 for x in votes if x["direction"]==leader_direction and x["weight"]>0)
+  strong_margin=(leader-opposing)>=15
+
+  if leader_direction!="WAIT" and confidence>=self.min_confidence and strong_margin and leader_votes>=4:
+   signal=leader_direction
+   reason=f"{signal} strong confirmation: {leader:.1f}/100, margin {leader-opposing:.1f}, {leader_votes} indicators agree"
+  else:
+   signal="WAIT"
+   if leader_direction=="WAIT":
+    reason="WAIT: indicators are evenly split"
+   else:
+    reason=f"WAIT: confirmation {leader:.1f}/100, margin {leader-opposing:.1f}, {leader_votes} indicators agree; strong-signal gate not met"
+
   self.last_signal=signal
-  return {"signal":signal,"confidence":confidence,"call_score":round(call,1),"put_score":round(put,1),"max_score":total,"votes":votes,"reason":reason,"timestamp":datetime.now(timezone.utc).isoformat()}
+  return {
+   "signal":signal,
+   "confidence":confidence,
+   "call_score":round(call,1),
+   "put_score":round(put,1),
+   "max_score":total,
+   "votes":votes,
+   "reason":reason,
+   "timestamp":datetime.now(timezone.utc).isoformat()
+  }
