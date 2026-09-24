@@ -39,8 +39,8 @@ class SignalEngine:
    base="CALL" if lips>teeth>jaw else "PUT" if lips<teeth<jaw else "WAIT"
    alligator_dir=base
    if base!="WAIT":
-    factor=min(1.0,max(0.30,width_ratio/1.5))
-    vote("Alligator",base,15.0*factor)
+    # Keep Alligator as a full directional vote; width is confirmation, not a reason to erase direction.
+    vote("Alligator",base,15.0)
    else: vote("Alligator","WAIT",0)
   else:
    alligator_dir="WAIT"; vote("Alligator","WAIT",0)
@@ -114,7 +114,7 @@ class SignalEngine:
   # SELECTIVE ANTICIPATION:
   # A directional candidate must persist instead of firing on one tick.
   raw_candidate=leader_direction if leader_direction in ("CALL","PUT") else "WAIT"
-  if raw_candidate=="WAIT" or not atr_active:
+  if raw_candidate=="WAIT":
    self.developing_strength=max(0.0,self.developing_strength-0.10)
    if self.developing_strength<=0.05:
     self.developing_side="WAIT"; self.developing_since=0.0
@@ -134,13 +134,13 @@ class SignalEngine:
   early_ok=(
    raw_candidate!="WAIT" and candidate_persistent
    and confidence>=max(80.0,self.min_confidence-4)
-   and trend_aligned and atr_active and adjusted_margin>=9.0
+   and trend_aligned and adjusted_margin>=8.0
    and not reversal_conflict
   )
 
   full_ok=(
    leader_direction!="WAIT" and confidence>=effective_min_confidence
-   and strong_margin and atr_active and trend_aligned
+   and strong_margin and trend_aligned
   )
 
   if full_ok or early_ok:
@@ -154,9 +154,9 @@ class SignalEngine:
    )
   else:
    signal="WAIT"
-   if not atr_active: reason="WAIT: volatility filter is inactive; ATR is not above its baseline"
+   if not trend_aligned: reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); primary trend is not aligned enough"
    elif leader_direction=="WAIT": reason="WAIT: indicators are evenly split"
-   elif not trend_aligned: reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); only {trend_votes}/3 primary trend indicators agree"
+   elif adjusted_margin < 8.0: reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); directional margin {adjusted_margin:.1f} is too narrow"
    elif raw_candidate==self.developing_side and self.developing_strength>0:
     reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); developing {raw_candidate} strength {self.developing_strength:.2f}"
    else: reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); adjusted margin {adjusted_margin:.1f}; confirmation gate not met"
