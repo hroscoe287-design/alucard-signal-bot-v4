@@ -121,5 +121,8 @@ def calculate(candles):
   "bb_width":last(bbwidth),"bb_pct":last(bbpct),
   "supertrend":last(st),"supertrend_direction":int(st_dir.iloc[-1]),
   "stoch_k":last(stoch_k),"stoch_d":last(stoch_d),
-  "adx":last(adx_series),"plus_di":last(plus_di),"minus_di":last(minus_di)
+  "adx":last(adx_series),"plus_di":last(plus_di),"minus_di":last(minus_di),
+  "momentum_1":float(close.iloc[-1]-close.iloc[-2]),
+  "momentum_2":float(close.iloc[-2]-close.iloc[-3]),
+  "momentum_3":float(close.iloc[-3]-close.iloc[-4])
  }}
