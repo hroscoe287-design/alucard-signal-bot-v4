@@ -11,6 +11,7 @@ logging.basicConfig(level=logging.INFO)
 app=FastAPI(title=APP_NAME)
 builder=CandleBuilder(TIMEFRAMES.get(settings.timeframe,60),settings.history_size)
 engine=SignalEngine(settings.min_confidence)
+ai_reviewer=AIReviewer()
 state={"asset":settings.asset,"timeframe":settings.timeframe,"price":None,"last_tick":0.0,"signal":{"signal":"WAIT","confidence":0,"reason":"Waiting for market data"},"indicators":{},"entry_until":0.0,"entry_signal":"WAIT","ai_review":{"enabled":False,"decision":"NO_REVIEW","reason":"AI confirmation not configured"}}
 feed=None
 feed_task=None
