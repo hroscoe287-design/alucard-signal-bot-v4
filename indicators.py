@@ -14,7 +14,8 @@ def atr(df,n=14):
  return tr.ewm(alpha=1/n,adjust=False).mean()
 
 def cci(df,n=14):
- tp=(df.high+df.low+df.close)/3; ma=tp.rolling(n).mean()
+ tp=(df.high+df.low+df.close)/3
+ ma=tp.rolling(n).mean()
  md=tp.rolling(n).apply(lambda x:np.mean(np.abs(x-x.mean())),raw=True)
  return (tp-ma)/(0.015*md.replace(0,np.nan))
 
@@ -52,7 +53,6 @@ def bollinger(s,n=20,stds=2.0):
  return mid,upper,lower,width,pct
 
 def supertrend(df,period=10,multiplier=3.0):
- # Classic Supertrend: ATR(10), multiplier 3, HL2 source.
  hl2=(df.high+df.low)/2.0
  a=atr(df,period)
  upper=hl2+multiplier*a
@@ -84,11 +84,12 @@ def calculate(candles):
  atr_series=atr(df)
  atr_base=atr_series.rolling(50,min_periods=14).mean()
  st,st_dir=supertrend(df,10,3.0)
+ cci_series=cci(df,14)
  last=lambda s:float(s.iloc[-1]) if pd.notna(s.iloc[-1]) else None
  return {"ready":True,"values":{
   "price":float(close.iloc[-1]),"ema9":last(e9),"ema20":last(e20),"ema50":last(e50),
   "macd":last(m),"macd_signal":last(ms),"macd_hist":last(mh),"rsi":last(rsi(close)),
-  "cci":last(cci(df)),"atr":last(atr_series),"atr_baseline":last(atr_base),"psar":last(ps),
+  "cci":last(cci_series),"atr":last(atr_series),"atr_baseline":last(atr_base),"psar":last(ps),
   "alligator_jaw":last(jaw),"alligator_teeth":last(teeth),"alligator_lips":last(lips),
   "fractal_up":bool(fu.iloc[-3]),"fractal_down":bool(fd.iloc[-3]),
   "bb_mid":last(bbmid),"bb_upper":last(bbup),"bb_lower":last(bblow),
