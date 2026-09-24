@@ -15,6 +15,10 @@ ai_reviewer=AIReviewer()
 state={"asset":settings.asset,"timeframe":settings.timeframe,"price":None,"last_tick":0.0,"signal":{"signal":"WAIT","confidence":0,"reason":"Waiting for market data"},"indicators":{},"entry_until":0.0,"entry_signal":"WAIT","ai_review":{"enabled":False,"decision":"NO_REVIEW","reason":"AI confirmation not configured"}}
 feed=None
 feed_task=None
+ai_busy=False
+ai_generation=0
+last_ai_candidate="WAIT"
+last_ai_candle_ts=0
 def refresh_entry_window(signal, candle_ts=None):
  now=time.time()
  direction=signal.get("signal","WAIT")
@@ -62,9 +66,13 @@ async def ai_confirm(asset, timeframe, candidate, engine_result, indicators, can
   ai_busy=False
 
 def schedule_ai_review():
- global ai_busy,ai_generation
+ global ai_busy,ai_generation,last_ai_candidate,last_ai_candle_ts
  candidate=state["signal"].get("signal","WAIT")
+ candle_ts=builder.candles[-1].ts if builder.candles else 0
  if candidate not in ("CALL","PUT") or ai_busy or not ai_reviewer.enabled or not ai_reviewer.api_key:return
+ if candidate==last_ai_candidate and candle_ts==last_ai_candle_ts:return
+ last_ai_candidate=candidate
+ last_ai_candle_ts=candle_ts
  ai_busy=True
  ai_generation+=1
  generation=ai_generation
@@ -77,6 +85,7 @@ def on_history(candles):
   state["indicators"]=result.get("values",{})
   state["signal"]=engine.evaluate(result)
   refresh_entry_window(state["signal"], builder.candles[-1].ts if builder.candles else None)
+  schedule_ai_review()
 
 def on_tick(asset,price,ts):
  if asset and asset.lower()!=state["asset"].lower():return
@@ -87,6 +96,7 @@ def on_tick(asset,price,ts):
  state["indicators"]=result.get("values",{})
  state["signal"]=engine.evaluate(result)
  refresh_entry_window(state["signal"],ts)
+ schedule_ai_review()
 @app.on_event("startup")
 async def startup():
  global feed,feed_task
