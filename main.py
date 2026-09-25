@@ -15,10 +15,12 @@ ai_reviewer=AIReviewer()
 state={"asset":settings.asset,"timeframe":settings.timeframe,"price":None,"last_tick":0.0,"signal":{"signal":"WAIT","confidence":0,"reason":"Waiting for market data"},"indicators":{},"entry_until":0.0,"entry_signal":"WAIT","ai_review":{"enabled":False,"decision":"NO_REVIEW","reason":"AI confirmation not configured"}}
 feed=None
 feed_task=None
+feed_watchdog_task=None
 ai_busy=False
 ai_generation=0
 last_ai_candidate="WAIT"
 last_ai_candle_ts=0
+last_fresh_signal={"signal":"WAIT","confidence":0,"reason":"Waiting for market data","votes":[]}
 def refresh_entry_window(signal, candle_ts=None):
  now=time.time()
  direction=signal.get("signal","WAIT")
@@ -88,6 +90,7 @@ def on_history(candles):
   schedule_ai_review()
 
 def on_tick(asset,price,ts):
+ global last_fresh_signal
  if asset and asset.lower()!=state["asset"].lower():return
  state["price"]=price
  state["last_tick"]=time.time()
@@ -95,30 +98,53 @@ def on_tick(asset,price,ts):
  result=calculate(builder.snapshot())
  state["indicators"]=result.get("values",{})
  state["signal"]=engine.evaluate(result)
+ last_fresh_signal=dict(state["signal"])
  refresh_entry_window(state["signal"],ts)
  schedule_ai_review()
+
+async def feed_watchdog():
+ global last_fresh_signal
+ while True:
+  try:
+   await asyncio.sleep(0.5)
+   if not state["last_tick"]:
+    continue
+   age=time.time()-state["last_tick"]
+   if age > settings.stale_seconds:
+    state["entry_until"]=0.0
+    state["entry_signal"]="WAIT"
+    state["signal"]={**last_fresh_signal,"signal":"WAIT","confidence":0,
+      "reason":f"WAIT: feed is stale ({age:.1f}s) — waiting for fresh market data"}
+  except asyncio.CancelledError:
+   raise
+  except Exception:
+   logging.exception("feed watchdog error")
+
 @app.on_event("startup")
 async def startup():
- global feed,feed_task
+ global feed,feed_task,feed_watchdog_task
  feed=PocketOptionFeed(settings.ws_url,settings.auth_json,on_tick,on_history,asset=state["asset"],period=TIMEFRAMES.get(state["timeframe"],60))
  feed_task=asyncio.create_task(feed.run())
+ feed_watchdog_task=asyncio.create_task(feed_watchdog())
  logging.info("%s started; auth configured=%s",APP_NAME,bool(settings.auth_json))
 @app.on_event("shutdown")
 async def shutdown():
+ global feed_watchdog_task
  if feed:await feed.stop()
  if feed_task:feed_task.cancel()
+ if feed_watchdog_task:feed_watchdog_task.cancel()
 @app.get("/api/health")
 async def health():
  age=time.time()-state["last_tick"] if state["last_tick"] else None
  live=bool(feed and feed.connected and age is not None and age<=settings.stale_seconds)
- return {"service":APP_NAME,"feed":"LIVE" if live else "WAITING","engine":"READY" if builder.candles else "WAITING_FOR_FEED","last_tick_age":age,"auth_configured":bool(settings.auth_json),"error":feed.last_error if feed else ""}
+ return {"service":APP_NAME,"feed":"LIVE" if live else "WAITING","engine":"READY" if builder.candles and live else "WAITING_FOR_FEED","last_tick_age":age,"stale_threshold":settings.stale_seconds,"feed_timing":"FRESH" if live else "STALE","auth_configured":bool(settings.auth_json),"error":feed.last_error if feed else ""}
 @app.get("/api/state")
 async def api_state():
  age=time.time()-state["last_tick"] if state["last_tick"] else None
  entry_remaining=max(0.0,state["entry_until"]-time.time()) if state["entry_until"] else 0.0
  if state["entry_until"] and (state["entry_signal"] != state["signal"].get("signal") or state["signal"].get("signal") not in ("CALL","PUT")):
   state["entry_until"]=0.0; state["entry_signal"]="WAIT"; entry_remaining=0.0
- return {"app":APP_NAME,"asset":state["asset"],"timeframe":state["timeframe"],"payout":settings.payout,"expiry":settings.expiry_minutes,"price":state["price"],"last_tick_age":age,"feed_connected":bool(feed and feed.connected),"candles":builder.snapshot()[-120:],"indicators":state["indicators"],"signal":state["signal"],"ai_review":state.get("ai_review",{}),"entry_remaining":round(entry_remaining,1),"entry_open":entry_remaining>0}
+ return {"app":APP_NAME,"asset":state["asset"],"timeframe":state["timeframe"],"payout":settings.payout,"expiry":settings.expiry_minutes,"price":state["price"],"last_tick_age":age,"feed_connected":bool(feed and feed.connected),"feed_fresh":bool(age is not None and age<=settings.stale_seconds),"feed_stale_threshold":settings.stale_seconds,"candles":builder.snapshot()[-120:],"indicators":state["indicators"],"signal":state["signal"],"ai_review":state.get("ai_review",{}),"entry_remaining":round(entry_remaining,1),"entry_open":entry_remaining>0}
 @app.get("/api/assets")
 async def assets():return {"assets":ASSETS,"timeframes":list(TIMEFRAMES)}
 @app.post("/api/config")
