@@ -87,6 +87,24 @@ class SignalEngine:
   leader=max(call,put); opposing=min(call,put)
   weighted_margin=leader-opposing
 
+  # Movement confirmation: Alligator line motion + MACD histogram slope + CCI slope.
+  ag_slopes=[v.get("alligator_lips_slope"),v.get("alligator_teeth_slope"),v.get("alligator_jaw_slope")]
+  ag_move_dir="CALL" if all(x is not None and x>0 for x in ag_slopes) else "PUT" if all(x is not None and x<0 for x in ag_slopes) else "WAIT"
+  ag_expanding=(v.get("alligator_spread_change") or 0)>0
+  macd_slope=v.get("macd_hist_slope"); cci_slope=v.get("cci_slope")
+  macd_improving=macd_slope is not None and ((leader_direction=="CALL" and macd_slope>0) or (leader_direction=="PUT" and macd_slope<0))
+  cci_trending=cci_slope is not None and ((leader_direction=="CALL" and cci_slope>0) or (leader_direction=="PUT" and cci_slope<0))
+  movement_bonus=movement_penalty=0.0
+  if leader_direction in ("CALL","PUT"):
+   if ag_move_dir==leader_direction:
+    movement_bonus+=7.0
+    if ag_expanding: movement_bonus+=2.0
+   elif ag_move_dir in ("CALL","PUT"): movement_penalty+=5.0
+   if macd_improving: movement_bonus+=5.0
+   elif macd_slope is not None and ((leader_direction=="CALL" and v["macd_hist"]>0) or (leader_direction=="PUT" and v["macd_hist"]<0)): movement_penalty+=2.0
+   if cci_trending: movement_bonus+=4.0
+   elif cci_slope is not None and ((leader_direction=="CALL" and cci>0) or (leader_direction=="PUT" and cci<0)): movement_penalty+=2.0
+
   adx=v.get("adx"); plus_di=v.get("plus_di"); minus_di=v.get("minus_di")
   sk=v.get("stoch_k"); sd=v.get("stoch_d")
   adx_ready=adx is not None and plus_di is not None and minus_di is not None
@@ -114,7 +132,7 @@ class SignalEngine:
   momentum_bonus=0.0
   if leader_direction in ("CALL","PUT") and momentum_side==leader_direction and momentum_same_count>=2:
    momentum_bonus=min(4.0, 1.5 + momentum_same_count*0.8)
-  adjusted_margin=weighted_margin+confirmation_bonus+momentum_bonus-conflict_penalty
+  adjusted_margin=weighted_margin+confirmation_bonus+movement_bonus+momentum_bonus-conflict_penalty-movement_penalty
   strong_margin=adjusted_margin>=13
   trend_votes=sum(1 for x in (alligator_dir,ema_dir,super_dir) if x==leader_direction)
   trend_aligned=trend_votes>=2
@@ -150,13 +168,14 @@ class SignalEngine:
   early_ok=(
    raw_candidate!="WAIT" and candidate_persistent
    and confidence>=max(70.0,self.min_confidence-8)
-   and trend_aligned and adjusted_margin>=6.0
+   and trend_aligned and adjusted_margin>=8.0
    and not reversal_conflict
+   and (ag_move_dir==raw_candidate or macd_improving or cci_trending)
   )
 
   full_ok=(
    leader_direction!="WAIT" and confidence>=effective_min_confidence
-   and strong_margin and trend_aligned
+   and strong_margin and trend_aligned and not reversal_conflict
   )
 
   if full_ok or early_ok:
@@ -185,7 +204,8 @@ class SignalEngine:
    "atr_very_low":atr_very_low,
    "adx":adx,"plus_di":plus_di,"minus_di":minus_di,"stoch_k":sk,"stoch_d":sd,
    "dmi_direction":dmi_dir,"stoch_direction":stoch_dir,
-   "confirmation_bonus":round(confirmation_bonus,1),"momentum_bonus":round(momentum_bonus,1),"momentum_side":momentum_side,"momentum_same_count":momentum_same_count,
+   "confirmation_bonus":round(confirmation_bonus,1),"movement_bonus":round(movement_bonus,1),"movement_penalty":round(movement_penalty,1),"momentum_bonus":round(momentum_bonus,1),"momentum_side":momentum_side,"momentum_same_count":momentum_same_count,
+   "alligator_movement":ag_move_dir,"alligator_expanding":ag_expanding,"macd_improving":macd_improving,"cci_trending":cci_trending,
    "conflict_penalty":round(conflict_penalty,1),
    "reversal_conflict":reversal_conflict,"effective_min_confidence":effective_min_confidence,
    "developing_signal":self.developing_side,"developing_strength":round(self.developing_strength,2),
