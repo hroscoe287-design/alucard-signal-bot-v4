@@ -111,11 +111,16 @@ def calculate(candles):
  adx_series,plus_di,minus_di=adx_dmi(df,14)
  cci_series=cci(df,14)
  last=lambda s:float(s.iloc[-1]) if pd.notna(s.iloc[-1]) else None
+ def slope(s,n=3):
+  if len(s)<n+1 or pd.isna(s.iloc[-1]) or pd.isna(s.iloc[-1-n]): return None
+  return float(s.iloc[-1]-s.iloc[-1-n])
  return {"ready":True,"values":{
   "price":float(close.iloc[-1]),"ema9":last(e9),"ema20":last(e20),"ema50":last(e50),
-  "macd":last(m),"macd_signal":last(ms),"macd_hist":last(mh),"rsi":last(rsi(close)),
-  "cci":last(cci_series),"atr":last(atr_series),"atr_baseline":last(atr_base),"psar":last(ps),
+  "macd":last(m),"macd_signal":last(ms),"macd_hist":last(mh),"macd_hist_slope":slope(mh,3),"rsi":last(rsi(close)),
+  "cci":last(cci_series),"cci_slope":slope(cci_series,3),"atr":last(atr_series),"atr_baseline":last(atr_base),"psar":last(ps),
   "alligator_jaw":last(jaw),"alligator_teeth":last(teeth),"alligator_lips":last(lips),
+  "alligator_jaw_slope":slope(jaw,3),"alligator_teeth_slope":slope(teeth,3),"alligator_lips_slope":slope(lips,3),
+  "alligator_spread":last((lips-teeth).abs()+(teeth-jaw).abs()),"alligator_spread_change":slope((lips-teeth).abs()+(teeth-jaw).abs(),3),
   "fractal_up":bool(fu.iloc[-3]),"fractal_down":bool(fd.iloc[-3]),
   "bb_mid":last(bbmid),"bb_upper":last(bbup),"bb_lower":last(bblow),
   "bb_width":last(bbwidth),"bb_pct":last(bbpct),
