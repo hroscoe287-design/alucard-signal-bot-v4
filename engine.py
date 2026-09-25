@@ -40,22 +40,22 @@ class SignalEngine:
    alligator_dir=base
    if base!="WAIT":
     # Keep Alligator as a full directional vote; width is confirmation, not a reason to erase direction.
-    vote("Alligator",base,15.0)
+    vote("Alligator",base,20.0)
    else: vote("Alligator","WAIT",0)
   else:
    alligator_dir="WAIT"; vote("Alligator","WAIT",0)
 
   ema_dir="CALL" if v["ema9"]>v["ema20"]>v["ema50"] else "PUT" if v["ema9"]<v["ema20"]<v["ema50"] else "WAIT"
-  vote("EMA 9/20/50",ema_dir,15)
+  vote("EMA 9/20/50",ema_dir,12)
   fd="CALL" if v.get("fractal_down") and not v.get("fractal_up") else "PUT" if v.get("fractal_up") and not v.get("fractal_down") else "WAIT"
-  vote("Fractal (2)",fd,5)
-  vote("Parabolic SAR","CALL" if v["price"]>v["psar"] else "PUT" if v["price"]<v["psar"] else "WAIT",10)
-  vote("MACD 12/26/9","CALL" if v["macd_hist"]>0 else "PUT" if v["macd_hist"]<0 else "WAIT",10)
+  vote("Fractal (2)",fd,4)
+  vote("Parabolic SAR","CALL" if v["price"]>v["psar"] else "PUT" if v["price"]<v["psar"] else "WAIT",8)
+  vote("MACD 12/26/9","CALL" if v["macd_hist"]>0 else "PUT" if v["macd_hist"]<0 else "WAIT",16)
 
   r=v.get("rsi")
-  vote("RSI (14)","CALL" if r is not None and r>50 else "PUT" if r is not None and r<50 else "WAIT",10)
+  vote("RSI (14)","CALL" if r is not None and r>50 else "PUT" if r is not None and r<50 else "WAIT",8)
   cci=v.get("cci")
-  vote("CCI (14)","CALL" if cci is not None and cci>0 else "PUT" if cci is not None and cci<0 else "WAIT",10)
+  vote("CCI (14)","CALL" if cci is not None and cci>0 else "PUT" if cci is not None and cci<0 else "WAIT",12)
 
   bp=v.get("bb_pct"); bm=v.get("bb_mid")
   vote("Bollinger 20/2",
@@ -73,13 +73,13 @@ class SignalEngine:
   # soft-volatility regime and can still produce a signal when direction agrees.
   atr_very_low=atr_ratio is not None and atr_ratio<0.60
   atr_dir="CALL" if not atr_very_low and v["price"]>v["ema9"] else "PUT" if not atr_very_low and v["price"]<v["ema9"] else "WAIT"
-  vote("ATR (14)",atr_dir,5)
+  vote("ATR (14)",atr_dir,4)
 
   st=v.get("supertrend"); st_dir=v.get("supertrend_direction")
   if st is not None and st_dir is not None:
    super_dir="CALL" if int(st_dir)==1 and v["price"]>st else "PUT" if int(st_dir)==-1 and v["price"]<st else "WAIT"
   else: super_dir="WAIT"
-  vote("Supertrend 10/3",super_dir,10)
+  vote("Supertrend 10/3",super_dir,8)
 
   leader_direction="CALL" if call>put else "PUT" if put>call else "WAIT"
   directional_votes=sum(1 for x in votes if x["direction"]==leader_direction)
