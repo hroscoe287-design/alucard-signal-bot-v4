@@ -158,7 +158,7 @@ class SignalEngine:
     confirmation_bonus+=2.0
    elif ichimoku_dir in ("CALL","PUT"):
     conflict_penalty+=2.0
-
+\n   # DeMarker 14 + WMA 14: confirmation only; never a new weighted vote.\n   dem=v.get("demarker"); dem_prev=v.get("demarker_prev")\n   wma14=v.get("wma14"); wma14_prev=v.get("wma14_prev")\n   demarker_wma_dir="WAIT"\n   if all(x is not None for x in (dem,dem_prev,wma14,wma14_prev)):\n    if dem>0.50 and dem>=dem_prev and v["price"]>wma14 and wma14>=wma14_prev:\n     demarker_wma_dir="CALL"\n    elif dem<0.50 and dem<=dem_prev and v["price"]<wma14 and wma14<=wma14_prev:\n     demarker_wma_dir="PUT"\n   if leader_direction!="WAIT":\n    if demarker_wma_dir==leader_direction: confirmation_bonus+=3.0\n    elif demarker_wma_dir in ("CALL","PUT"): conflict_penalty+=3.0\n
   # REAL-TIME CANDLE MOMENTUM: gives the newest 2-3 candles limited early influence
   # without changing the 10-indicator / 100-point model.
   m1=v.get("momentum_1") or 0.0; m2=v.get("momentum_2") or 0.0; m3=v.get("momentum_3") or 0.0
@@ -238,7 +238,7 @@ class SignalEngine:
    "atr_active":atr_active,"atr_ratio":round(atr_ratio,2) if atr_ratio is not None else None,
    "atr_very_low":atr_very_low,
    "adx":adx,"plus_di":plus_di,"minus_di":minus_di,"stoch_k":sk,"stoch_d":sd,
-   "dmi_direction":dmi_dir,"stoch_direction":stoch_dir,"osma_direction":osma_dir,"osma_hist":osma_hist,"ichimoku_direction":ichimoku_dir,
+   "dmi_direction":dmi_dir,"stoch_direction":stoch_dir,"osma_direction":osma_dir,"osma_hist":osma_hist,"ichimoku_direction":ichimoku_dir,"demarker":dem,"wma14":wma14,"demarker_wma_direction":demarker_wma_dir,
    "confirmation_bonus":round(confirmation_bonus,1),"candle_confirmation":candle_confirmation,"support":support,"resistance":resistance,"near_support":near_support,"near_resistance":near_resistance,"support_break":support_break,"resistance_break":resistance_break,"sr_confirmation":sr_confirmation,"candle_direction":candle_direction,"candle_body_ratio":round(candle_body_ratio,3),"candle_confirmed":candle_confirmed,
    "momentum_bonus":round(momentum_bonus,1),"momentum_side":momentum_side,"momentum_same_count":momentum_same_count,
    "conflict_penalty":round(conflict_penalty,1),
