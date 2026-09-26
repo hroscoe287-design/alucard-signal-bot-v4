@@ -238,7 +238,7 @@ class SignalEngine:
    "atr_active":atr_active,"atr_ratio":round(atr_ratio,2) if atr_ratio is not None else None,
    "atr_very_low":atr_very_low,
    "adx":adx,"plus_di":plus_di,"minus_di":minus_di,"stoch_k":sk,"stoch_d":sd,
-   "dmi_direction":dmi_dir,"stoch_direction":stoch_dir,"osma_direction":osma_dir,"osma_hist":osma_hist,"ichimoku_direction":ichimoku_dir,"demarker":dem,"wma14":wma14,"demarker_wma_direction":demarker_wma_dir,
+   "dmi_direction":dmi_dir,"stoch_direction":stoch_dir,"osma_direction":osma_dir,"osma_hist":osma_hist,"ichimoku_direction":ichimoku_dir,"demarker":dem,"wma9":wma9,"demarker_wma_direction":demarker_wma_dir,
    "confirmation_bonus":round(confirmation_bonus,1),"candle_confirmation":candle_confirmation,"support":support,"resistance":resistance,"near_support":near_support,"near_resistance":near_resistance,"support_break":support_break,"resistance_break":resistance_break,"sr_confirmation":sr_confirmation,"candle_direction":candle_direction,"candle_body_ratio":round(candle_body_ratio,3),"candle_confirmed":candle_confirmed,
    "momentum_bonus":round(momentum_bonus,1),"momentum_side":momentum_side,"momentum_same_count":momentum_same_count,
    "conflict_penalty":round(conflict_penalty,1),
