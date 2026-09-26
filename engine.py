@@ -158,7 +158,19 @@ class SignalEngine:
     confirmation_bonus+=2.0
    elif ichimoku_dir in ("CALL","PUT"):
     conflict_penalty+=2.0
-\n   # DeMarker 9 + WMA 9: confirmation only; never a new weighted vote.\n   dem=v.get("demarker"); dem_prev=v.get("demarker_prev")\n   wma9=v.get("wma9"); wma9_prev=v.get("wma9_prev")\n   demarker_wma_dir="WAIT"\n   if all(x is not None for x in (dem,dem_prev,wma9,wma9_prev)):\n    if dem>0.50 and dem>=dem_prev and v["price"]>wma9 and wma9>=wma9_prev:\n     demarker_wma_dir="CALL"\n    elif dem<0.50 and dem<=dem_prev and v["price"]<wma9 and wma9<=wma9_prev:\n     demarker_wma_dir="PUT"\n   if leader_direction!="WAIT":\n    if demarker_wma_dir==leader_direction: confirmation_bonus+=3.0\n    elif demarker_wma_dir in ("CALL","PUT"): conflict_penalty+=3.0\n
+
+   # DeMarker 9 + WMA 9: confirmation only; never a new weighted vote.
+   dem=v.get("demarker"); dem_prev=v.get("demarker_prev")
+   wma9=v.get("wma9"); wma9_prev=v.get("wma9_prev")
+   demarker_wma_dir="WAIT"
+   if all(x is not None for x in (dem,dem_prev,wma9,wma9_prev)):
+    if dem>0.50 and dem>=dem_prev and v["price"]>wma9 and wma9>=wma9_prev:
+     demarker_wma_dir="CALL"
+    elif dem<0.50 and dem<=dem_prev and v["price"]<wma9 and wma9<=wma9_prev:
+     demarker_wma_dir="PUT"
+   if leader_direction!="WAIT":
+    if demarker_wma_dir==leader_direction: confirmation_bonus+=3.0
+    elif demarker_wma_dir in ("CALL","PUT"): conflict_penalty+=3.0\n
   # REAL-TIME CANDLE MOMENTUM: gives the newest 2-3 candles limited early influence
   # without changing the 10-indicator / 100-point model.
   m1=v.get("momentum_1") or 0.0; m2=v.get("momentum_2") or 0.0; m3=v.get("momentum_3") or 0.0
