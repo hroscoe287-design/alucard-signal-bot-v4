@@ -95,7 +95,18 @@ class SignalEngine:
   stoch_dir="CALL" if stoch_ready and sk>sd else "PUT" if stoch_ready and sk<sd else "WAIT"
 
   confirmation_bonus=0.0; conflict_penalty=0.0
+  candle_direction=v.get("candle_direction","WAIT")
+  candle_body_ratio=float(v.get("candle_body_ratio") or 0.0)
+  candle_confirmed=bool(v.get("candle_confirmed",False))
+  candle_confirmation="WAIT"
   if leader_direction!="WAIT":
+   if candle_confirmed and candle_direction==leader_direction:
+    confirmation_bonus+=3.0
+    candle_confirmation=leader_direction
+   elif candle_confirmed and candle_direction in ("CALL","PUT") and candle_direction!=leader_direction:
+    conflict_penalty+=3.0
+    candle_confirmation="CONFLICT"
+
    if adx_ready and adx>=18:
     if dmi_dir==leader_direction: confirmation_bonus+=3.0
     elif dmi_dir in ("CALL","PUT"): conflict_penalty+=3.0
@@ -185,7 +196,8 @@ class SignalEngine:
    "atr_very_low":atr_very_low,
    "adx":adx,"plus_di":plus_di,"minus_di":minus_di,"stoch_k":sk,"stoch_d":sd,
    "dmi_direction":dmi_dir,"stoch_direction":stoch_dir,
-   "confirmation_bonus":round(confirmation_bonus,1),"momentum_bonus":round(momentum_bonus,1),"momentum_side":momentum_side,"momentum_same_count":momentum_same_count,
+   "confirmation_bonus":round(confirmation_bonus,1),"candle_confirmation":candle_confirmation,"candle_direction":candle_direction,"candle_body_ratio":round(candle_body_ratio,3),"candle_confirmed":candle_confirmed,
+   "momentum_bonus":round(momentum_bonus,1),"momentum_side":momentum_side,"momentum_same_count":momentum_same_count,
    "conflict_penalty":round(conflict_penalty,1),
    "reversal_conflict":reversal_conflict,"effective_min_confidence":effective_min_confidence,
    "developing_signal":self.developing_side,"developing_strength":round(self.developing_strength,2),
