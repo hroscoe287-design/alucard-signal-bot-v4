@@ -110,6 +110,18 @@ def calculate(candles):
  stoch_k,stoch_d=stochastic(df,14,3,3)
  adx_series,plus_di,minus_di=adx_dmi(df,14)
  cci_series=cci(df,14)
+ # Automatic support/resistance from recent completed-candle swing range.
+ sr_window=min(30,len(df)-1)
+ recent=df.iloc[-(sr_window+1):-1]
+ support=float(recent.low.min())
+ resistance=float(recent.high.max())
+ current_price=float(close.iloc[-1])
+ sr_atr=float(atr_series.iloc[-1]) if pd.notna(atr_series.iloc[-1]) else 0.0
+ sr_buffer=max(sr_atr*0.35,current_price*0.00005)
+ near_support=abs(current_price-support)<=sr_buffer
+ near_resistance=abs(resistance-current_price)<=sr_buffer
+ support_break=current_price<support
+ resistance_break=current_price>resistance
  prev=df.iloc[-2]
  candle_range=float(prev.high-prev.low)
  candle_body=abs(float(prev.close-prev.open))
@@ -122,6 +134,7 @@ def calculate(candles):
   "macd":last(m),"macd_signal":last(ms),"macd_hist":last(mh),"rsi":last(rsi(close)),
   "cci":last(cci_series),"atr":last(atr_series),"atr_baseline":last(atr_base),"psar":last(ps),
   "candle_direction":candle_direction,"candle_body_ratio":round(candle_body_ratio,3),"candle_confirmed":candle_confirmed,
+  "support":support,"resistance":resistance,"near_support":near_support,"near_resistance":near_resistance,"support_break":support_break,"resistance_break":resistance_break,
   "alligator_jaw":last(jaw),"alligator_teeth":last(teeth),"alligator_lips":last(lips),
   "fractal_up":bool(fu.iloc[-3]),"fractal_down":bool(fd.iloc[-3]),
   "bb_mid":last(bbmid),"bb_upper":last(bbup),"bb_lower":last(bblow),
