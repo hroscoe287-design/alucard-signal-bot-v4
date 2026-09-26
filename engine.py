@@ -98,6 +98,18 @@ class SignalEngine:
   candle_direction=v.get("candle_direction","WAIT")
   candle_body_ratio=float(v.get("candle_body_ratio") or 0.0)
   candle_confirmed=bool(v.get("candle_confirmed",False))
+  support=v.get("support"); resistance=v.get("resistance")
+  near_support=bool(v.get("near_support",False)); near_resistance=bool(v.get("near_resistance",False))
+  support_break=bool(v.get("support_break",False)); resistance_break=bool(v.get("resistance_break",False))
+  sr_confirmation="WAIT"
+  if leader_direction!="WAIT":
+   if leader_direction=="CALL" and (support_break or resistance_break): sr_confirmation="CALL" if resistance_break else "WAIT"
+   elif leader_direction=="PUT" and (support_break or resistance_break): sr_confirmation="PUT" if support_break else "WAIT"
+   # Near support favors a bounce CALL; near resistance favors a rejection PUT.
+   if leader_direction=="CALL" and near_support: confirmation_bonus+=2.0; sr_confirmation="CALL"
+   elif leader_direction=="PUT" and near_resistance: confirmation_bonus+=2.0; sr_confirmation="PUT"
+   elif leader_direction=="CALL" and near_resistance: conflict_penalty+=2.0; sr_confirmation="CONFLICT"
+   elif leader_direction=="PUT" and near_support: conflict_penalty+=2.0; sr_confirmation="CONFLICT"
   candle_confirmation="WAIT"
   if leader_direction!="WAIT":
    if candle_confirmed and candle_direction==leader_direction:
@@ -196,7 +208,7 @@ class SignalEngine:
    "atr_very_low":atr_very_low,
    "adx":adx,"plus_di":plus_di,"minus_di":minus_di,"stoch_k":sk,"stoch_d":sd,
    "dmi_direction":dmi_dir,"stoch_direction":stoch_dir,
-   "confirmation_bonus":round(confirmation_bonus,1),"candle_confirmation":candle_confirmation,"candle_direction":candle_direction,"candle_body_ratio":round(candle_body_ratio,3),"candle_confirmed":candle_confirmed,
+   "confirmation_bonus":round(confirmation_bonus,1),"candle_confirmation":candle_confirmation,"support":support,"resistance":resistance,"near_support":near_support,"near_resistance":near_resistance,"support_break":support_break,"resistance_break":resistance_break,"sr_confirmation":sr_confirmation,"candle_direction":candle_direction,"candle_body_ratio":round(candle_body_ratio,3),"candle_confirmed":candle_confirmed,
    "momentum_bonus":round(momentum_bonus,1),"momentum_side":momentum_side,"momentum_same_count":momentum_same_count,
    "conflict_penalty":round(conflict_penalty,1),
    "reversal_conflict":reversal_conflict,"effective_min_confidence":effective_min_confidence,
