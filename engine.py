@@ -94,6 +94,25 @@ class SignalEngine:
   dmi_dir="CALL" if adx_ready and plus_di>minus_di else "PUT" if adx_ready and minus_di>plus_di else "WAIT"
   stoch_dir="CALL" if stoch_ready and sk>sd else "PUT" if stoch_ready and sk<sd else "WAIT"
 
+  # OSMA 10/20/24: momentum confirmation. It does not add a new vote;
+  # it confirms whether momentum agrees with the existing MACD direction.
+  osma_hist=v.get("osma_hist")
+  osma_signal=v.get("osma_signal")
+  osma_dir="CALL" if osma_hist is not None and osma_hist>0 else "PUT" if osma_hist is not None and osma_hist<0 else "WAIT"
+
+  # Ichimoku 9/26/52: trend/location confirmation. It does not add a new
+  # weighted vote, so the existing 10-vote model remains the rollback baseline.
+  tenkan=v.get("ichimoku_tenkan"); kijun=v.get("ichimoku_kijun")
+  span_a=v.get("ichimoku_span_a"); span_b=v.get("ichimoku_span_b")
+  ichimoku_ready=all(x is not None for x in (tenkan,kijun,span_a,span_b))
+  if ichimoku_ready:
+   cloud_top=max(span_a,span_b); cloud_bottom=min(span_a,span_b)
+   if v["price"]>cloud_top and tenkan>kijun: ichimoku_dir="CALL"
+   elif v["price"]<cloud_bottom and tenkan<kijun: ichimoku_dir="PUT"
+   else: ichimoku_dir="WAIT"
+  else:
+   ichimoku_dir="WAIT"
+
   confirmation_bonus=0.0; conflict_penalty=0.0
   candle_direction=v.get("candle_direction","WAIT")
   candle_body_ratio=float(v.get("candle_body_ratio") or 0.0)
@@ -127,6 +146,18 @@ class SignalEngine:
      confirmation_bonus+=2.0
     elif stoch_dir in ("CALL","PUT") and ((leader_direction=="CALL" and sk>15) or (leader_direction=="PUT" and sk<85)):
      conflict_penalty+=2.0
+
+   # Additional confirmation layers: small influence, never replacement votes.
+   # OSMA confirms momentum; Ichimoku confirms broader trend/location.
+   if osma_dir==leader_direction:
+    confirmation_bonus+=2.0
+   elif osma_dir in ("CALL","PUT"):
+    conflict_penalty+=2.0
+
+   if ichimoku_dir==leader_direction:
+    confirmation_bonus+=2.0
+   elif ichimoku_dir in ("CALL","PUT"):
+    conflict_penalty+=2.0
 
   # REAL-TIME CANDLE MOMENTUM: gives the newest 2-3 candles limited early influence
   # without changing the 10-indicator / 100-point model.
@@ -207,7 +238,7 @@ class SignalEngine:
    "atr_active":atr_active,"atr_ratio":round(atr_ratio,2) if atr_ratio is not None else None,
    "atr_very_low":atr_very_low,
    "adx":adx,"plus_di":plus_di,"minus_di":minus_di,"stoch_k":sk,"stoch_d":sd,
-   "dmi_direction":dmi_dir,"stoch_direction":stoch_dir,
+   "dmi_direction":dmi_dir,"stoch_direction":stoch_dir,"osma_direction":osma_dir,"osma_hist":osma_hist,"ichimoku_direction":ichimoku_dir,
    "confirmation_bonus":round(confirmation_bonus,1),"candle_confirmation":candle_confirmation,"support":support,"resistance":resistance,"near_support":near_support,"near_resistance":near_resistance,"support_break":support_break,"resistance_break":resistance_break,"sr_confirmation":sr_confirmation,"candle_direction":candle_direction,"candle_body_ratio":round(candle_body_ratio,3),"candle_confirmed":candle_confirmed,
    "momentum_bonus":round(momentum_bonus,1),"momentum_side":momentum_side,"momentum_same_count":momentum_same_count,
    "conflict_penalty":round(conflict_penalty,1),
