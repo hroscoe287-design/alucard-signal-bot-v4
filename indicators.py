@@ -175,7 +175,7 @@ def calculate(candles):
   "stoch_k":last(stoch_k),"stoch_d":last(stoch_d),
   "adx":last(adx_series),"plus_di":last(plus_di),"minus_di":last(minus_di),
   "demarker":last(demarker_series),"demarker_prev":float(demarker_series.iloc[-2]) if len(demarker_series)>1 and pd.notna(demarker_series.iloc[-2]) else None,
-  "wma9":last(wma9),"wma9_prev":float(wma9.iloc[-2]) if len(wma14)>1 and pd.notna(wma14.iloc[-2]) else None,
+  "wma9":last(wma9),"wma9_prev":float(wma9.iloc[-2]) if len(wma9)>1 and pd.notna(wma9.iloc[-2]) else None,
   "momentum_1":float(close.iloc[-1]-close.iloc[-2]),
   "momentum_2":float(close.iloc[-2]-close.iloc[-3]),
   "momentum_3":float(close.iloc[-3]-close.iloc[-4])
