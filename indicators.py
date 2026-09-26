@@ -3,11 +3,11 @@ import pandas as pd
 
 def ema(s,n): return s.ewm(span=n,adjust=False).mean()
 
-def wma(s,n=14):
+def wma(s,n=9):
  weights=np.arange(1,n+1,dtype=float)
  return s.rolling(n).apply(lambda x:float(np.dot(x,weights)/weights.sum()),raw=True)
 
-def demarker(df,n=14):
+def demarker(df,n=9):
  high=df.high.astype(float); low=df.low.astype(float)
  demax=(high-high.shift(1)).where(high>high.shift(1),0.0)
  demin=(low.shift(1)-low).where(low<low.shift(1),0.0)
@@ -136,8 +136,8 @@ def calculate(candles):
  stoch_k,stoch_d=stochastic(df,14,3,3)
  adx_series,plus_di,minus_di=adx_dmi(df,14)
  cci_series=cci(df,14)
- demarker_series=demarker(df,14)
- wma14=wma(close,14)
+ demarker_series=demarker(df,9)
+ wma9=wma(close,9)
  # Automatic support/resistance from recent completed-candle swing range.
  sr_window=min(30,len(df)-1)
  recent=df.iloc[-(sr_window+1):-1]
@@ -175,7 +175,7 @@ def calculate(candles):
   "stoch_k":last(stoch_k),"stoch_d":last(stoch_d),
   "adx":last(adx_series),"plus_di":last(plus_di),"minus_di":last(minus_di),
   "demarker":last(demarker_series),"demarker_prev":float(demarker_series.iloc[-2]) if len(demarker_series)>1 and pd.notna(demarker_series.iloc[-2]) else None,
-  "wma14":last(wma14),"wma14_prev":float(wma14.iloc[-2]) if len(wma14)>1 and pd.notna(wma14.iloc[-2]) else None,
+  "wma9":last(wma9),"wma9_prev":float(wma9.iloc[-2]) if len(wma14)>1 and pd.notna(wma14.iloc[-2]) else None,
   "momentum_1":float(close.iloc[-1]-close.iloc[-2]),
   "momentum_2":float(close.iloc[-2]-close.iloc[-3]),
   "momentum_3":float(close.iloc[-3]-close.iloc[-4])
