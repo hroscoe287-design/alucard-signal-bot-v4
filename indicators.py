@@ -22,6 +22,20 @@ def cci(df,n=14):
 def macd(s):
  m=ema(s,12)-ema(s,26); sig=ema(m,9); return m,sig,m-sig
 
+def osma(s,fast=10,slow=20,signal=24):
+ # OSMA = oscillator (fast EMA - slow EMA) minus its signal EMA.
+ osc=ema(s,fast)-ema(s,slow)
+ sig=ema(osc,signal)
+ return osc,sig,osc-sig
+
+def ichimoku(df,tenkan=9,kijun=26,senkou=52):
+ high=df.high.astype(float); low=df.low.astype(float)
+ tenkan_s=(high.rolling(tenkan).max()+low.rolling(tenkan).min())/2
+ kijun_s=(high.rolling(kijun).max()+low.rolling(kijun).min())/2
+ span_a=(tenkan_s+kijun_s)/2
+ span_b=(high.rolling(senkou).max()+low.rolling(senkou).min())/2
+ return tenkan_s,kijun_s,span_a,span_b
+
 def psar(df,step=.02,max_af=.2):
  h=df.high.to_numpy(); l=df.low.to_numpy(); out=np.zeros(len(df))
  if not len(df): return pd.Series(dtype=float)
@@ -102,7 +116,8 @@ def calculate(candles):
  if len(candles)<35:return {"ready":False,"reason":"Need at least 35 candles","values":{}}
  df=pd.DataFrame(candles); close=df.close.astype(float)
  e9,e20,e50=ema(close,9),ema(close,20),ema(close,50)
- m,ms,mh=macd(close); ps=psar(df); jaw,teeth,lips=alligator(df); fu,fd=fractal(df,2)
+ m,ms,mh=macd(close); om,oms,omh=osma(close,10,20,24); ps=psar(df); jaw,teeth,lips=alligator(df); fu,fd=fractal(df,2)
+ tenkan_s,kijun_s,span_a,span_b=ichimoku(df,9,26,52)
  bbmid,bbup,bblow,bbwidth,bbpct=bollinger(close,20,2.0)
  atr_series=atr(df)
  atr_base=atr_series.rolling(50,min_periods=14).mean()
@@ -131,7 +146,11 @@ def calculate(candles):
  last=lambda s:float(s.iloc[-1]) if pd.notna(s.iloc[-1]) else None
  return {"ready":True,"values":{
   "price":float(close.iloc[-1]),"ema9":last(e9),"ema20":last(e20),"ema50":last(e50),
-  "macd":last(m),"macd_signal":last(ms),"macd_hist":last(mh),"rsi":last(rsi(close)),
+  "macd":last(m),"macd_signal":last(ms),"macd_hist":last(mh),
+  "osma":last(om),"osma_signal":last(oms),"osma_hist":last(omh),
+  "ichimoku_tenkan":last(tenkan_s),"ichimoku_kijun":last(kijun_s),
+  "ichimoku_span_a":last(span_a),"ichimoku_span_b":last(span_b),
+  "rsi":last(rsi(close)),
   "cci":last(cci_series),"atr":last(atr_series),"atr_baseline":last(atr_base),"psar":last(ps),
   "candle_direction":candle_direction,"candle_body_ratio":round(candle_body_ratio,3),"candle_confirmed":candle_confirmed,
   "support":support,"resistance":resistance,"near_support":near_support,"near_resistance":near_resistance,"support_break":support_break,"resistance_break":resistance_break,
