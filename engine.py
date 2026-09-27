@@ -40,20 +40,20 @@ class SignalEngine:
    alligator_dir=base
    if base!="WAIT":
     # Keep Alligator as a full directional vote; width is confirmation, not a reason to erase direction.
-    vote("Alligator",base,15.0)
+    vote("Alligator",base,20.0)
    else: vote("Alligator","WAIT",0)
   else:
    alligator_dir="WAIT"; vote("Alligator","WAIT",0)
 
   ema_dir="CALL" if v["ema9"]>v["ema20"]>v["ema50"] else "PUT" if v["ema9"]<v["ema20"]<v["ema50"] else "WAIT"
-  vote("EMA 9/20/50",ema_dir,15)
+  vote("EMA 9/20/50",ema_dir,12)
   fd="CALL" if v.get("fractal_down") and not v.get("fractal_up") else "PUT" if v.get("fractal_up") and not v.get("fractal_down") else "WAIT"
-  vote("Fractal (2)",fd,5)
+  vote("Fractal (2)",fd,4)
   vote("Parabolic SAR","CALL" if v["price"]>v["psar"] else "PUT" if v["price"]<v["psar"] else "WAIT",10)
-  vote("MACD 12/26/9","CALL" if v["macd_hist"]>0 else "PUT" if v["macd_hist"]<0 else "WAIT",10)
+  vote("MACD 12/26/9","CALL" if v["macd_hist"]>0 else "PUT" if v["macd_hist"]<0 else "WAIT",15)
 
   r=v.get("rsi")
-  vote("RSI (14)","CALL" if r is not None and r>50 else "PUT" if r is not None and r<50 else "WAIT",10)
+  vote("RSI (14)","CALL" if r is not None and r>50 else "PUT" if r is not None and r<50 else "WAIT",8)
   cci=v.get("cci")
   vote("CCI (14)","CALL" if cci is not None and cci>0 else "PUT" if cci is not None and cci<0 else "WAIT",10)
 
@@ -61,7 +61,7 @@ class SignalEngine:
   vote("Bollinger 20/2",
        "CALL" if bp is not None and bm is not None and bp>0.50 and v["price"]>=bm
        else "PUT" if bp is not None and bm is not None and bp<0.50 and v["price"]<=bm
-       else "WAIT",10)
+       else "WAIT",8)
 
   av=v.get("atr"); ab=v.get("atr_baseline")
   # ATR is now a soft volatility filter instead of a hard signal gate.
@@ -79,7 +79,7 @@ class SignalEngine:
   if st is not None and st_dir is not None:
    super_dir="CALL" if int(st_dir)==1 and v["price"]>st else "PUT" if int(st_dir)==-1 and v["price"]<st else "WAIT"
   else: super_dir="WAIT"
-  vote("Supertrend 10/3",super_dir,10)
+  vote("Supertrend 10/3",super_dir,8)
 
   leader_direction="CALL" if call>put else "PUT" if put>call else "WAIT"
   directional_votes=sum(1 for x in votes if x["direction"]==leader_direction)
@@ -189,6 +189,25 @@ class SignalEngine:
     elif osma_ichimoku_dir in ("CALL","PUT"):
      conflict_penalty+=3.0
 
+  # CCI DIRECTIONAL SAFETY CHECK: CCI remains a normal vote, but a clearly
+  # established CCI trend can block an obviously opposite candidate without
+  # adding a waiting period. Mild/flat CCI disagreement does not delay signals.
+  cci_prev=v.get("cci_prev")
+  cci_prev2=v.get("cci_prev2")
+  cci_direction="WAIT"
+  cci_clear=False
+  if cci is not None and cci_prev is not None:
+   cci_slope=cci-cci_prev
+   if cci>=50 and cci_slope>0: cci_direction="CALL"
+   elif cci<=-50 and cci_slope<0: cci_direction="PUT"
+   elif cci>0 and cci_slope>0: cci_direction="CALL"
+   elif cci<0 and cci_slope<0: cci_direction="PUT"
+   if cci_direction in ("CALL","PUT") and abs(cci)>=100 and ((cci_prev2 is not None and cci_prev>cci_prev2) if cci_direction=="CALL" else (cci_prev2 is not None and cci_prev<cci_prev2)):
+    cci_clear=True
+  cci_hard_conflict=(leader_direction in ("CALL","PUT") and cci_clear and cci_direction!=leader_direction)
+  if cci_hard_conflict:
+   conflict_penalty+=7.0
+
   # REAL-TIME CANDLE MOMENTUM: gives the newest 2-3 candles limited early influence
   # without changing the 10-indicator / 100-point model.
   m1=v.get("momentum_1") or 0.0; m2=v.get("momentum_2") or 0.0; m3=v.get("momentum_3") or 0.0
@@ -236,11 +255,13 @@ class SignalEngine:
    and confidence>=max(70.0,self.min_confidence-8)
    and trend_aligned and adjusted_margin>=6.0
    and not reversal_conflict
+   and not cci_hard_conflict
   )
 
   full_ok=(
    leader_direction!="WAIT" and confidence>=effective_min_confidence
    and strong_margin and trend_aligned
+   and not cci_hard_conflict
   )
 
   if full_ok or early_ok:
@@ -256,7 +277,7 @@ class SignalEngine:
    signal="WAIT"
    if not trend_aligned: reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); primary trend is not aligned enough"
    elif leader_direction=="WAIT": reason="WAIT: indicators are evenly split"
-   elif adjusted_margin < 6.0: reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); directional margin {adjusted_margin:.1f} is too narrow"
+   elif cci_hard_conflict: reason=f"WAIT: CCI is clearly {cci_direction} while the candidate is {leader_direction}; conflicting direction blocked"\n   elif adjusted_margin < 6.0: reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); directional margin {adjusted_margin:.1f} is too narrow"
    elif raw_candidate==self.developing_side and self.developing_strength>0:
     reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); developing {raw_candidate} strength {self.developing_strength:.2f}"
    else: reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); adjusted margin {adjusted_margin:.1f}; confirmation gate not met"
@@ -272,7 +293,7 @@ class SignalEngine:
    "confirmation_bonus":round(confirmation_bonus,1),"market_structure":market_structure,"market_structure_pattern":v.get("market_structure_pattern","INSUFFICIENT"),"market_structure_break":market_structure_break,"candle_confirmation":candle_confirmation,"support":support,"resistance":resistance,"near_support":near_support,"near_resistance":near_resistance,"support_break":support_break,"resistance_break":resistance_break,"sr_confirmation":sr_confirmation,"candle_direction":candle_direction,"candle_body_ratio":round(candle_body_ratio,3),"candle_confirmed":candle_confirmed,
    "momentum_bonus":round(momentum_bonus,1),"momentum_side":momentum_side,"momentum_same_count":momentum_same_count,
    "conflict_penalty":round(conflict_penalty,1),
-   "reversal_conflict":reversal_conflict,"effective_min_confidence":effective_min_confidence,
+   "reversal_conflict":reversal_conflict,"cci_direction":cci_direction,"cci_clear":cci_clear,"cci_hard_conflict":cci_hard_conflict,"effective_min_confidence":effective_min_confidence,
    "developing_signal":self.developing_side,"developing_strength":round(self.developing_strength,2),
    "developing_age":round(developing_age,1),"early_confirmation":early_ok,
    "votes":votes,"reason":reason,"timestamp":datetime.now(timezone.utc).isoformat()
