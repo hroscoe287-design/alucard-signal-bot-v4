@@ -188,7 +188,7 @@ def calculate(candles):
   "ichimoku_tenkan":last(tenkan_s),"ichimoku_kijun":last(kijun_s),
   "ichimoku_span_a":last(span_a),"ichimoku_span_b":last(span_b),
   "rsi":last(rsi(close)),
-  "cci":last(cci_series),"atr":last(atr_series),"atr_baseline":last(atr_base),"psar":last(ps),
+  "cci":last(cci_series),"cci_prev":float(cci_series.iloc[-2]) if len(cci_series)>1 and pd.notna(cci_series.iloc[-2]) else None,"cci_prev2":float(cci_series.iloc[-3]) if len(cci_series)>2 and pd.notna(cci_series.iloc[-3]) else None,"atr":last(atr_series),"atr_baseline":last(atr_base),"psar":last(ps),
   "candle_direction":candle_direction,"candle_body_ratio":round(candle_body_ratio,3),"candle_confirmed":candle_confirmed,
   "support":support,"resistance":resistance,"near_support":near_support,"near_resistance":near_resistance,"support_break":support_break,"resistance_break":resistance_break,
   "alligator_jaw":last(jaw),"alligator_teeth":last(teeth),"alligator_lips":last(lips),
