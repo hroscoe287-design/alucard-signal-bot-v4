@@ -20,15 +20,19 @@ class SignalEngine:
   v=ind["values"]
   call=put=0.0
   votes=[]
+  active_vote_count=0
 
   def vote(name,direction,weight):
    nonlocal call,put
    if direction=="CALL": call+=weight
    elif direction=="PUT": put+=weight
-   votes.append({"name":name,"direction":direction,"weight":round(weight,1)})
+   if direction in ("CALL","PUT"): active_vote_count += 1
+   votes.append({"name":name,"direction":direction,"weight":round(weight,2)})
 
-  # ALUCARD V4: 10 independent indicator votes, 100 weighted points.
-  # Confidence remains the simple agreement percentage.
+  # ALUCARD V4 GROUPED DIRECTIONAL VOTING: related indicators have equal weight within each group.
+  # Trend 30: Alligator/EMA/Supertrend; Momentum 24: MACD/OSMA/CCI;
+  # Direction 21: RSI/DeMarker+WMA/Ichimoku; Price Action 15: PSAR/Bollinger/Stochastic;
+  # Strength 10: DMI/ADX. Total directional weight = 100. ATR remains a volatility filter.
   # Supertrend baseline: ATR 10 / multiplier 3.0.
 
   jaw=v.get("alligator_jaw"); teeth=v.get("alligator_teeth"); lips=v.get("alligator_lips")
@@ -40,28 +44,28 @@ class SignalEngine:
    alligator_dir=base
    if base!="WAIT":
     # Keep Alligator as a full directional vote; width is confirmation, not a reason to erase direction.
-    vote("Alligator",base,15.0)
+    vote("Alligator",base,10.0)
    else: vote("Alligator","WAIT",0)
   else:
    alligator_dir="WAIT"; vote("Alligator","WAIT",0)
 
   ema_dir="CALL" if v["ema9"]>v["ema20"]>v["ema50"] else "PUT" if v["ema9"]<v["ema20"]<v["ema50"] else "WAIT"
-  vote("EMA 9/20/50",ema_dir,15)
+  vote("EMA 9/20/50",ema_dir,10)
   fd="CALL" if v.get("fractal_down") and not v.get("fractal_up") else "PUT" if v.get("fractal_up") and not v.get("fractal_down") else "WAIT"
   vote("Fractal (2)",fd,5)
-  vote("Parabolic SAR","CALL" if v["price"]>v["psar"] else "PUT" if v["price"]<v["psar"] else "WAIT",10)
-  vote("MACD 12/26/9","CALL" if v["macd_hist"]>0 else "PUT" if v["macd_hist"]<0 else "WAIT",10)
+  vote("Parabolic SAR","CALL" if v["price"]>v["psar"] else "PUT" if v["price"]<v["psar"] else "WAIT",5)
+  vote("MACD 12/26/9","CALL" if v["macd_hist"]>0 else "PUT" if v["macd_hist"]<0 else "WAIT",8)
 
   r=v.get("rsi")
-  vote("RSI (14)","CALL" if r is not None and r>50 else "PUT" if r is not None and r<50 else "WAIT",10)
+  vote("RSI (14)","CALL" if r is not None and r>50 else "PUT" if r is not None and r<50 else "WAIT",7)
   cci=v.get("cci")
-  vote("CCI (14)","CALL" if cci is not None and cci>0 else "PUT" if cci is not None and cci<0 else "WAIT",10)
+  vote("CCI (14)","CALL" if cci is not None and cci>0 else "PUT" if cci is not None and cci<0 else "WAIT",8)
 
   bp=v.get("bb_pct"); bm=v.get("bb_mid")
   vote("Bollinger 20/2",
        "CALL" if bp is not None and bm is not None and bp>0.50 and v["price"]>=bm
        else "PUT" if bp is not None and bm is not None and bp<0.50 and v["price"]<=bm
-       else "WAIT",10)
+       else "WAIT",5)
 
   av=v.get("atr"); ab=v.get("atr_baseline")
   # ATR is now a soft volatility filter instead of a hard signal gate.
@@ -73,7 +77,7 @@ class SignalEngine:
   # soft-volatility regime and can still produce a signal when direction agrees.
   atr_very_low=atr_ratio is not None and atr_ratio<0.60
   atr_dir="CALL" if not atr_very_low and v["price"]>v["ema9"] else "PUT" if not atr_very_low and v["price"]<v["ema9"] else "WAIT"
-  vote("ATR (14)",atr_dir,5)
+  # ATR remains a volatility filter, not a directional vote.
 
   st=v.get("supertrend"); st_dir=v.get("supertrend_direction")
   if st is not None and st_dir is not None:
@@ -94,14 +98,12 @@ class SignalEngine:
   dmi_dir="CALL" if adx_ready and plus_di>minus_di else "PUT" if adx_ready and minus_di>plus_di else "WAIT"
   stoch_dir="CALL" if stoch_ready and sk>sd else "PUT" if stoch_ready and sk<sd else "WAIT"
 
-  # OSMA 10/20/24: momentum confirmation. It does not add a new vote;
-  # it confirms whether momentum agrees with the existing MACD direction.
+  # OSMA 10/20/24: independent momentum vote, equal to MACD/CCI.
   osma_hist=v.get("osma_hist")
   osma_signal=v.get("osma_signal")
   osma_dir="CALL" if osma_hist is not None and osma_hist>0 else "PUT" if osma_hist is not None and osma_hist<0 else "WAIT"
 
-  # Ichimoku 9/26/52: trend/location confirmation. It does not add a new
-  # weighted vote, so the existing 10-vote model remains the rollback baseline.
+  # Ichimoku 9/26/52: independent direction/location vote.
   tenkan=v.get("ichimoku_tenkan"); kijun=v.get("ichimoku_kijun")
   span_a=v.get("ichimoku_span_a"); span_b=v.get("ichimoku_span_b")
   ichimoku_ready=all(x is not None for x in (tenkan,kijun,span_a,span_b))
@@ -112,6 +114,19 @@ class SignalEngine:
    else: ichimoku_dir="WAIT"
   else:
    ichimoku_dir="WAIT"
+
+  # Add the newer directional voters before selecting the leader.
+  vote("OSMA 10/20/24",osma_dir,8)
+  vote("Ichimoku 9/26/52",ichimoku_dir,7)
+  vote("DeMarker 9 + WMA 9",demarker_wma_dir,7)
+  vote("Stochastic 14/3/3",stoch_dir,5)
+  vote("DMI/ADX 14",dmi_dir,10)
+
+  leader_direction="CALL" if call>put else "PUT" if put>call else "WAIT"
+  directional_votes=sum(1 for x in votes if x["direction"]==leader_direction)
+  confidence=round(directional_votes/active_vote_count*100,1) if active_vote_count else 0.0
+  leader=max(call,put); opposing=min(call,put)
+  weighted_margin=leader-opposing
 
   confirmation_bonus=0.0; conflict_penalty=0.0
   candle_direction=v.get("candle_direction","WAIT")
@@ -246,7 +261,7 @@ class SignalEngine:
 
   self.last_signal=signal
   return {
-   "signal":signal,"confidence":confidence,"agreement_count":directional_votes,"agreement_total":10,
+   "signal":signal,"confidence":confidence,"agreement_count":directional_votes,"agreement_total":active_vote_count,
    "call_score":round(call,1),"put_score":round(put,1),"max_score":100,
    "atr_active":atr_active,"atr_ratio":round(atr_ratio,2) if atr_ratio is not None else None,
    "atr_very_low":atr_very_low,
