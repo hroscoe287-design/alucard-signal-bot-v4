@@ -147,6 +147,20 @@ class SignalEngine:
     elif stoch_dir in ("CALL","PUT") and ((leader_direction=="CALL" and sk>15) or (leader_direction=="PUT" and sk<85)):
      conflict_penalty+=2.0
 
+   # MARKET STRUCTURE CONFIRMATION — price action only, never a replacement vote.
+   # Bullish: Higher High + Higher Low. Bearish: Lower High + Lower Low.
+   # Mixed structure stays neutral; a fresh break gets a small directional bonus.
+   market_structure=v.get("market_structure","WAIT")
+   market_structure_break=v.get("market_structure_break","WAIT")
+   if market_structure==leader_direction:
+    confirmation_bonus+=3.0
+   elif market_structure in ("CALL","PUT"):
+    conflict_penalty+=3.0
+   if market_structure_break==leader_direction and market_structure!=leader_direction:
+    confirmation_bonus+=1.0
+   elif market_structure_break in ("CALL","PUT") and market_structure_break!=leader_direction:
+    conflict_penalty+=1.0
+
    # NEW-INDICATOR CONFIRMATION GROUPS — confirmation only, never replacement votes.
    # Group 1: DeMarker 9 + WMA 9 must agree together.
    dem=v.get("demarker"); dem_prev=v.get("demarker_prev")
@@ -255,7 +269,7 @@ class SignalEngine:
    "atr_very_low":atr_very_low,
    "adx":adx,"plus_di":plus_di,"minus_di":minus_di,"stoch_k":sk,"stoch_d":sd,
    "dmi_direction":dmi_dir,"stoch_direction":stoch_dir,"osma_direction":osma_dir,"osma_hist":osma_hist,"ichimoku_direction":ichimoku_dir,"osma_ichimoku_direction":osma_ichimoku_dir,"demarker":dem,"wma9":wma9,"demarker_wma_direction":demarker_wma_dir,
-   "confirmation_bonus":round(confirmation_bonus,1),"candle_confirmation":candle_confirmation,"support":support,"resistance":resistance,"near_support":near_support,"near_resistance":near_resistance,"support_break":support_break,"resistance_break":resistance_break,"sr_confirmation":sr_confirmation,"candle_direction":candle_direction,"candle_body_ratio":round(candle_body_ratio,3),"candle_confirmed":candle_confirmed,
+   "confirmation_bonus":round(confirmation_bonus,1),"market_structure":market_structure,"market_structure_pattern":v.get("market_structure_pattern","INSUFFICIENT"),"market_structure_break":market_structure_break,"candle_confirmation":candle_confirmation,"support":support,"resistance":resistance,"near_support":near_support,"near_resistance":near_resistance,"support_break":support_break,"resistance_break":resistance_break,"sr_confirmation":sr_confirmation,"candle_direction":candle_direction,"candle_body_ratio":round(candle_body_ratio,3),"candle_confirmed":candle_confirmed,
    "momentum_bonus":round(momentum_bonus,1),"momentum_side":momentum_side,"momentum_same_count":momentum_same_count,
    "conflict_penalty":round(conflict_penalty,1),
    "reversal_conflict":reversal_conflict,"effective_min_confidence":effective_min_confidence,
