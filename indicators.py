@@ -138,6 +138,30 @@ def calculate(candles):
  cci_series=cci(df,14)
  demarker_series=demarker(df,9)
  wma9=wma(close,9)
+ # Evelyn-style market structure from confirmed swing highs/lows.
+ # This is a price-action confirmation layer, not a new weighted vote.
+ swing_highs=[]; swing_lows=[]
+ for i in range(2,len(df)-2):
+  if bool(fu.iloc[i]): swing_highs.append((i,float(df.high.iloc[i])))
+  if bool(fd.iloc[i]): swing_lows.append((i,float(df.low.iloc[i])))
+ last_highs=swing_highs[-2:]; last_lows=swing_lows[-2:]
+ structure_bias="WAIT"; structure_pattern="INSUFFICIENT"
+ if len(last_highs)==2 and len(last_lows)==2:
+  h1,h2=last_highs[0][1],last_highs[1][1]
+  l1,l2=last_lows[0][1],last_lows[1][1]
+  if h2>h1 and l2>l1:
+   structure_bias="CALL"; structure_pattern="HH_HL"
+  elif h2<h1 and l2<l1:
+   structure_bias="PUT"; structure_pattern="LH_LL"
+  elif h2>h1 and l2<l1:
+   structure_bias="WAIT"; structure_pattern="MIXED_EXPANSION"
+  elif h2<h1 and l2>l1:
+   structure_bias="WAIT"; structure_pattern="MIXED_COMPRESSION"
+ latest_close=float(close.iloc[-1])
+ structure_break="WAIT"
+ if last_highs and latest_close>last_highs[-1][1]: structure_break="CALL"
+ elif last_lows and latest_close<last_lows[-1][1]: structure_break="PUT"
+
  # Automatic support/resistance from recent completed-candle swing range.
  sr_window=min(30,len(df)-1)
  recent=df.iloc[-(sr_window+1):-1]
@@ -169,6 +193,9 @@ def calculate(candles):
   "support":support,"resistance":resistance,"near_support":near_support,"near_resistance":near_resistance,"support_break":support_break,"resistance_break":resistance_break,
   "alligator_jaw":last(jaw),"alligator_teeth":last(teeth),"alligator_lips":last(lips),
   "fractal_up":bool(fu.iloc[-3]),"fractal_down":bool(fd.iloc[-3]),
+  "market_structure":structure_bias,"market_structure_pattern":structure_pattern,
+  "market_structure_break":structure_break,
+  "market_structure_highs":[x[1] for x in last_highs],"market_structure_lows":[x[1] for x in last_lows],
   "bb_mid":last(bbmid),"bb_upper":last(bbup),"bb_lower":last(bblow),
   "bb_width":last(bbwidth),"bb_pct":last(bbpct),
   "supertrend":last(st),"supertrend_direction":int(st_dir.iloc[-1]),
