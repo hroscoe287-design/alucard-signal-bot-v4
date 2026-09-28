@@ -235,6 +235,15 @@ class SignalEngine:
   if cci_hard_conflict:
    conflict_penalty+=7.0
 
+  # MACD REVERSAL SLOPE: histogram direction can change before the MACD vote
+  # crosses zero. It is used only as a reversal-safety input, never as a new vote.
+  macd_hist=v.get("macd_hist")
+  macd_hist_prev=v.get("macd_hist_prev")
+  macd_slope_dir="WAIT"
+  if macd_hist is not None and macd_hist_prev is not None:
+   if macd_hist>macd_hist_prev: macd_slope_dir="CALL"
+   elif macd_hist<macd_hist_prev: macd_slope_dir="PUT"
+
   # REAL-TIME CANDLE MOMENTUM: gives the newest 2-3 candles limited early influence
   # without changing the 10-indicator / 100-point model.
   m1=v.get("momentum_1") or 0.0; m2=v.get("momentum_2") or 0.0; m3=v.get("momentum_3") or 0.0
@@ -253,6 +262,7 @@ class SignalEngine:
    if alligator_slope_dir==opposite: reversal_evidence.append("Alligator")
    if dmi_dir==opposite and adx_ready and adx>=18: reversal_evidence.append("DMI")
    if osma_dir==opposite: reversal_evidence.append("OSMA")
+   if macd_slope_dir==opposite: reversal_evidence.append("MACD_Slope")
    if cci_direction==opposite and cci is not None: reversal_evidence.append("CCI")
    if candle_confirmed and candle_direction==opposite: reversal_evidence.append("Candle")
    if market_structure==opposite: reversal_evidence.append("Structure")
@@ -264,15 +274,21 @@ class SignalEngine:
 
    strong_reversal_sources=sum(
     1 for x in reversal_evidence
-    if x in ("Alligator","DMI","CCI","OSMA","Structure","StructureBreak")
+    if x in ("Alligator","DMI","CCI","OSMA","MACD_Slope","Structure","StructureBreak")
    )
-   if len(reversal_evidence)>=4 and strong_reversal_sources>=2:
+   # REVERSAL SAFETY: prevent a stale high-confidence direction from being
+   # released when the newest price-action/trend evidence has already turned.
+   # This is a block, not a delay: normal voting can immediately re-establish
+   # the new direction as evidence catches up.
+   reversal_safety = (
+    len(reversal_evidence)>=3 and strong_reversal_sources>=2
+   )
+   if reversal_safety:
     reversal_direction=opposite
-    leader_direction=opposite
-    directional_votes=sum(1 for x in votes if x["direction"]==leader_direction)
-    confidence=round(directional_votes/10*100,1)
-    leader=max(call,put); opposing=min(call,put)
-    weighted_margin=leader-opposing
+    leader_direction="WAIT"
+    directional_votes=0
+    confidence=0.0
+    weighted_margin=0.0
 
   momentum_bonus=0.0
   if leader_direction in ("CALL","PUT") and momentum_side==leader_direction and momentum_same_count>=2:
@@ -368,7 +384,8 @@ class SignalEngine:
    "confirmation_bonus":round(confirmation_bonus,1),"market_structure":market_structure,"market_structure_pattern":v.get("market_structure_pattern","INSUFFICIENT"),"market_structure_break":market_structure_break,"candle_confirmation":candle_confirmation,"support":support,"resistance":resistance,"near_support":near_support,"near_resistance":near_resistance,"support_break":support_break,"resistance_break":resistance_break,"sr_confirmation":sr_confirmation,"candle_direction":candle_direction,"candle_body_ratio":round(candle_body_ratio,3),"candle_confirmed":candle_confirmed,
    "momentum_bonus":round(momentum_bonus,1),"momentum_side":momentum_side,"momentum_same_count":momentum_same_count,
    "conflict_penalty":round(conflict_penalty,1),
-   "reversal_conflict":reversal_conflict,"cci_direction":cci_direction,"cci_clear":cci_clear,"cci_hard_conflict":cci_hard_conflict,"effective_min_confidence":effective_min_confidence,
+   "reversal_conflict":reversal_conflict,"reversal_safety":reversal_safety,"reversal_direction":reversal_direction,
+   "reversal_evidence":reversal_evidence,"cci_direction":cci_direction,"cci_clear":cci_clear,"cci_hard_conflict":cci_hard_conflict,"effective_min_confidence":effective_min_confidence,
    "developing_signal":self.developing_side,"developing_strength":round(self.developing_strength,2),
    "developing_age":round(developing_age,1),"early_confirmation":early_ok,
    "votes":votes,"reason":reason,"timestamp":datetime.now(timezone.utc).isoformat()
