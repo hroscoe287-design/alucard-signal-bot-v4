@@ -204,6 +204,7 @@ def calculate(candles):
  return {"ready":True,"values":{
   "price":float(close.iloc[-1]),"ema9":last(e9),"ema20":last(e20),"ema50":last(e50),
   "macd":last(m),"macd_signal":last(ms),"macd_hist":last(mh),
+  "macd_hist_prev":float(mh.iloc[-2]) if len(mh)>1 and pd.notna(mh.iloc[-2]) else None,
   "osma":last(om),"osma_signal":last(oms),"osma_hist":last(omh),
   "ichimoku_tenkan":last(tenkan_s),"ichimoku_kijun":last(kijun_s),
   "ichimoku_span_a":last(span_a),"ichimoku_span_b":last(span_b),
