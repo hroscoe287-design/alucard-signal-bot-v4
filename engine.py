@@ -241,6 +241,39 @@ class SignalEngine:
   momentum_side="CALL" if m1>0 and m2>0 and m3>0 else "PUT" if m1<0 and m2<0 and m3<0 else "WAIT"
   momentum_strength=(abs(m1)+abs(m2)+abs(m3)) if momentum_side!="WAIT" else 0.0
   momentum_same_count=sum(1 for x in (m1,m2,m3) if (x>0 if momentum_side=="CALL" else x<0)) if momentum_side!="WAIT" else 0
+
+  # REVERSAL DIRECTION RESOLUTION — TEST MODEL
+  # Keep the original 10-vote weighted model intact, but resolve a stale
+  # leader when several independent signals already point the other way.
+  # This is an immediate direction correction, not an added waiting period.
+  reversal_direction="WAIT"
+  if leader_direction in ("CALL","PUT"):
+   opposite="PUT" if leader_direction=="CALL" else "CALL"
+   reversal_evidence=[]
+   if alligator_slope_dir==opposite: reversal_evidence.append("Alligator")
+   if dmi_dir==opposite and adx_ready and adx>=18: reversal_evidence.append("DMI")
+   if osma_dir==opposite: reversal_evidence.append("OSMA")
+   if cci_direction==opposite and cci is not None: reversal_evidence.append("CCI")
+   if candle_confirmed and candle_direction==opposite: reversal_evidence.append("Candle")
+   if market_structure==opposite: reversal_evidence.append("Structure")
+   if market_structure_break==opposite: reversal_evidence.append("StructureBreak")
+   if momentum_side==opposite and momentum_same_count>=2: reversal_evidence.append("Momentum")
+   if stoch_dir==opposite and stoch_ready: reversal_evidence.append("Stochastic")
+   if ichimoku_dir==opposite: reversal_evidence.append("Ichimoku")
+   if demarker_wma_dir==opposite: reversal_evidence.append("DeMarker/WMA")
+
+   strong_reversal_sources=sum(
+    1 for x in reversal_evidence
+    if x in ("Alligator","DMI","CCI","OSMA","Structure","StructureBreak")
+   )
+   if len(reversal_evidence)>=4 and strong_reversal_sources>=2:
+    reversal_direction=opposite
+    leader_direction=opposite
+    directional_votes=sum(1 for x in votes if x["direction"]==leader_direction)
+    confidence=round(directional_votes/10*100,1)
+    leader=max(call,put); opposing=min(call,put)
+    weighted_margin=leader-opposing
+
   momentum_bonus=0.0
   if leader_direction in ("CALL","PUT") and momentum_side==leader_direction and momentum_same_count>=2:
    momentum_bonus=min(4.0, 1.5 + momentum_same_count*0.8)
