@@ -39,11 +39,38 @@ class SignalEngine:
    base="CALL" if lips>teeth>jaw else "PUT" if lips<teeth<jaw else "WAIT"
    alligator_dir=base
    if base!="WAIT":
-    # Keep Alligator as a full directional vote; width is confirmation, not a reason to erase direction.
+    # Alligator remains the strongest weighted vote. The test model also measures
+    # line separation, expansion/contraction, and line slopes below.
     vote("Alligator",base,20.0)
    else: vote("Alligator","WAIT",0)
   else:
    alligator_dir="WAIT"; vote("Alligator","WAIT",0)
+
+  # ALLIGATOR FOCUS TEST:
+  # Direction alone is not enough. A wide, expanding, correctly sloped Alligator
+  # is treated as a strong trend; a tangled/compressed Alligator is treated as weak.
+  aj_prev=v.get("alligator_jaw_prev"); at_prev=v.get("alligator_teeth_prev"); al_prev=v.get("alligator_lips_prev")
+  alligator_width_ratio=width_ratio
+  prev_spread=None
+  if all(x is not None for x in (aj_prev,at_prev,al_prev)):
+   prev_spread=max(abs(al_prev-aj_prev),abs(at_prev-aj_prev),abs(al_prev-at_prev))
+  alligator_expanding=bool(prev_spread is not None and spread>prev_spread)
+  alligator_compressed=bool(atr>0 and alligator_width_ratio<0.35)
+  alligator_wide=bool(atr>0 and alligator_width_ratio>=0.75)
+  alligator_slope_dir="WAIT"
+  if all(x is not None for x in (aj_prev,at_prev,al_prev)):
+   slopes=(jaw-aj_prev,teeth-at_prev,lips-al_prev)
+   if all(x>0 for x in slopes): alligator_slope_dir="CALL"
+   elif all(x<0 for x in slopes): alligator_slope_dir="PUT"
+  alligator_strong=bool(
+   alligator_dir in ("CALL","PUT")
+   and alligator_wide and alligator_expanding
+   and alligator_slope_dir==alligator_dir
+  )
+  alligator_weak=bool(
+   alligator_dir=="WAIT" or alligator_compressed
+   or (alligator_slope_dir in ("CALL","PUT") and alligator_dir!=alligator_slope_dir)
+  )
 
   ema_dir="CALL" if v["ema9"]>v["ema20"]>v["ema50"] else "PUT" if v["ema9"]<v["ema20"]<v["ema50"] else "WAIT"
   vote("EMA 9/20/50",ema_dir,12)
@@ -220,7 +247,18 @@ class SignalEngine:
   adjusted_margin=weighted_margin+confirmation_bonus+momentum_bonus-conflict_penalty
   strong_margin=adjusted_margin>=13
   trend_votes=sum(1 for x in (alligator_dir,ema_dir,super_dir) if x==leader_direction)
-  trend_aligned=trend_votes>=2
+  # A clear Alligator trend is required to support the candidate; this is a
+  # directional quality filter, not an added vote and does not add waiting time.
+  alligator_conflict=(leader_direction in ("CALL","PUT") and alligator_dir in ("CALL","PUT") and alligator_dir!=leader_direction)
+  if alligator_strong and alligator_dir==leader_direction:
+   confirmation_bonus+=5.0
+  elif alligator_weak:
+   conflict_penalty+=2.0
+  if alligator_conflict:
+   conflict_penalty+=6.0
+  trend_aligned=(trend_votes>=2 and not alligator_conflict and alligator_dir==leader_direction)
+  if leader_direction in ("CALL","PUT") and alligator_dir=="WAIT":
+   trend_aligned=False
 
   reversal_conflict=(
    leader_direction!="WAIT" and adx_ready and adx>=18
@@ -287,6 +325,10 @@ class SignalEngine:
    "signal":signal,"confidence":confidence,"agreement_count":directional_votes,"agreement_total":10,
    "call_score":round(call,1),"put_score":round(put,1),"max_score":100,
    "atr_active":atr_active,"atr_ratio":round(atr_ratio,2) if atr_ratio is not None else None,
+   "alligator_width_ratio":round(alligator_width_ratio,3),"alligator_wide":alligator_wide,
+   "alligator_expanding":alligator_expanding,"alligator_compressed":alligator_compressed,
+   "alligator_slope_direction":alligator_slope_dir,"alligator_strong":alligator_strong,
+   "alligator_weak":alligator_weak,"alligator_conflict":alligator_conflict,
    "atr_very_low":atr_very_low,
    "adx":adx,"plus_di":plus_di,"minus_di":minus_di,"stoch_k":sk,"stoch_d":sd,
    "dmi_direction":dmi_dir,"stoch_direction":stoch_dir,"osma_direction":osma_dir,"osma_hist":osma_hist,"ichimoku_direction":ichimoku_dir,"osma_ichimoku_direction":osma_ichimoku_dir,"demarker":dem,"wma9":wma9,"demarker_wma_direction":demarker_wma_dir,
