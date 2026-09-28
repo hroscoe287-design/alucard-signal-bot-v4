@@ -64,7 +64,27 @@ def psar(df,step=.02,max_af=.2):
   out[i]=sar
  return pd.Series(out,index=df.index)
 
-def alligator(df): return ema(df.close,13),ema(df.close,8),ema(df.close,5)
+def smma(s,n):
+ # Wilder/SMMA smoothing used by the classic Williams Alligator.
+ # Seed with the first n-period SMA, then recursively smooth.
+ s=s.astype(float)
+ out=pd.Series(np.nan,index=s.index,dtype=float)
+ if len(s)<n: return out
+ out.iloc[n-1]=s.iloc[:n].mean()
+ alpha=1.0/n
+ for i in range(n,len(s)):
+  out.iloc[i]=(out.iloc[i-1]*(n-1)+s.iloc[i])*alpha
+ return out
+
+def alligator(df):
+ # Classic Williams Alligator: SMMA of median price (HL/2).
+ # Raw values are used for live logic; the traditional 8/5/3 forward
+ # offsets are display offsets, not future-looking inputs.
+ median=(df.high.astype(float)+df.low.astype(float))/2.0
+ jaw=smma(median,13)
+ teeth=smma(median,8)
+ lips=smma(median,5)
+ return jaw,teeth,lips
 
 def fractal(df,span=2):
  return df.high.rolling(2*span+1,center=True).max().eq(df.high),df.low.rolling(2*span+1,center=True).min().eq(df.low)
