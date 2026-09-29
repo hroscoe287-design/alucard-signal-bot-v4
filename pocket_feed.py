@@ -269,19 +269,11 @@ class PocketOptionFeed:
                 log.info("Pocket Option authorization accepted")
                 return
             if event == "updateAssets":
-                log.info("Pocket Option auth-stage assets received")
+                log.info("Pocket Option auth-stage assets received; continuing authorization wait")
                 if len(packets) > 1 and auth_attempt == 0:
                     auth_attempt = 1
                     await ws.send(packets[1])
                     log.info("Pocket Option auth retry: normalized session payload")
-                    # Some Pocket Option sessions deliver the asset catalog before
-                    # successauth. Give the session a short grace period, but do
-                    # not leave the market feed permanently stuck waiting for a
-                    # successauth event that this session may not emit.
-                    try:
-                        await asyncio.wait_for(ws.recv(), timeout=5)
-                    except asyncio.TimeoutError:
-                        pass
 
         raise RuntimeError("Pocket Option authorization response not received")
 
