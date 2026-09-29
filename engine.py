@@ -399,7 +399,8 @@ class SignalEngine:
    signal="WAIT"
    if not trend_aligned: reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); primary trend is not aligned enough"
    elif leader_direction=="WAIT": reason="WAIT: indicators are evenly split"
-   elif cci_hard_conflict: reason=f"WAIT: CCI is clearly {cci_direction} while the candidate is {leader_direction}; conflicting direction blocked"\n   elif adjusted_margin < 6.0: reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); directional margin {adjusted_margin:.1f} is too narrow"
+   elif cci_hard_conflict: reason=f"WAIT: CCI is clearly {cci_direction} while the candidate is {leader_direction}; conflicting direction blocked"
+   elif adjusted_margin < 6.0: reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); directional margin {adjusted_margin:.1f} is too narrow"
    elif raw_candidate==self.developing_side and self.developing_strength>0:
     reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); developing {raw_candidate} strength {self.developing_strength:.2f}"
    else: reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); adjusted margin {adjusted_margin:.1f}; confirmation gate not met"
