@@ -7,6 +7,7 @@ from indicators import calculate
 from engine import SignalEngine
 from pocket_feed import PocketOptionFeed
 from ai_reviewer import AIReviewer
+from pro_guards import apply_pro_guards
 logging.basicConfig(level=logging.INFO)
 app=FastAPI(title=APP_NAME)
 builder=CandleBuilder(TIMEFRAMES.get(settings.timeframe,60),settings.history_size)
@@ -84,6 +85,7 @@ def on_history(candles):
   result=calculate(builder.snapshot())
   state["indicators"]=result.get("values",{})
   state["signal"]=engine.evaluate(result)
+  state["signal"]=apply_pro_guards(state["signal"],state["indicators"],last_tick=state["last_tick"],timeframe_seconds=builder.timeframe,candle_ts=builder.candles[-1].ts if builder.candles else None)
   refresh_entry_window(state["signal"], builder.candles[-1].ts if builder.candles else None)
   schedule_ai_review()
 
@@ -95,6 +97,7 @@ def on_tick(asset,price,ts):
  result=calculate(builder.snapshot())
  state["indicators"]=result.get("values",{})
  state["signal"]=engine.evaluate(result)
+ state["signal"]=apply_pro_guards(state["signal"],state["indicators"],last_tick=state["last_tick"],timeframe_seconds=builder.timeframe,candle_ts=builder.candles[-1].ts if builder.candles else None)
  refresh_entry_window(state["signal"],ts)
  schedule_ai_review()
 @app.on_event("startup")
