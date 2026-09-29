@@ -400,8 +400,8 @@ class SignalEngine:
         developing_age = now - self.developing_since if self.developing_since else 0.0
         candidate_persistent = (
             self.developing_side == raw_candidate
-            and developing_age >= 1.5
-            and self.developing_strength >= 0.52
+            and developing_age >= 0.8
+            and self.developing_strength >= 0.40
         )
 
         spike_block = False
@@ -422,10 +422,10 @@ class SignalEngine:
             raw_candidate != "WAIT"
             and candidate_persistent
             and confidence >= effective_min_confidence
-            and adjusted_margin >= 10.0
+            and adjusted_margin >= 6.0
             and trend_aligned
             and not safety_block
-            and not cci_clear
+            and not (cci_clear and cci_trend_dir != leader_direction)
             and not (cci_trend_dir in ("CALL", "PUT") and cci_trend_dir != leader_direction and abs(cci or 0) >= 100)
         )
 
