@@ -82,6 +82,9 @@ class PocketOptionFeed:
         return payload
 
     def auth_packet(self):
+        # Always rebuild the auth frame from the captured session payload.
+        # This preserves session/uid/isDemo while adding the current protocol
+        # fields instead of replaying a stale browser frame verbatim.
         payload = self._auth_payload()
         if payload is None:
             return None
