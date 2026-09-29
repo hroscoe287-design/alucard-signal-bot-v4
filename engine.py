@@ -221,9 +221,9 @@ class SignalEngine:
     conflict_penalty+=5.0
 
    if demarker_wma_dir==leader_direction:
-     confirmation_bonus+=3.0
-    elif demarker_wma_dir in ("CALL","PUT"):
-     conflict_penalty+=3.0
+    confirmation_bonus+=3.0
+   elif demarker_wma_dir in ("CALL","PUT"):
+    conflict_penalty+=3.0
 
     if osma_ichimoku_dir==leader_direction:
      confirmation_bonus+=3.0
@@ -281,6 +281,21 @@ class SignalEngine:
   if cci_reversal_conflict:
    conflict_penalty += 6.0 if cci_reversal_zone else 4.0
 
+  # HARD REVERSAL TRIPWIRE:
+  # Extreme CCI turning against the candidate plus MACD momentum turning
+  # against it is treated as immediate reversal evidence. Alligator slope
+  # disagreement or nearby S/R makes the block stronger. No fixed delay.
+  hard_reversal_tripwire=False
+  if leader_direction in ("CALL","PUT") and cci_reversal_side in ("CALL","PUT"):
+   opposite="PUT" if leader_direction=="CALL" else "CALL"
+   macd_turn_against = (
+    macd_hist is not None and macd_hist_prev is not None and
+    ((macd_hist < macd_hist_prev) if leader_direction=="CALL" else (macd_hist > macd_hist_prev))
+   )
+   if cci_reversal_side==opposite and macd_turn_against and (alligator_slope_dir==opposite or cci_reversal_zone):
+    hard_reversal_tripwire=True
+    conflict_penalty += 10.0
+
   # MACD REVERSAL SLOPE: histogram direction can change before the MACD vote
   # crosses zero. It is used only as a reversal-safety input, never as a new vote.
   macd_hist=v.get("macd_hist")
@@ -311,6 +326,7 @@ class SignalEngine:
    if macd_slope_dir==opposite: reversal_evidence.append("MACD_Slope")
    if cci_direction==opposite and cci is not None: reversal_evidence.append("CCI")
    if cci_reversal_conflict and cci_reversal_side==opposite: reversal_evidence.append("CCI_Extreme_Reversal")
+   if hard_reversal_tripwire: reversal_evidence.append("Hard_Reversal_Tripwire")
    if candle_confirmed and candle_direction==opposite: reversal_evidence.append("Candle")
    if market_structure==opposite: reversal_evidence.append("Structure")
    if market_structure_break==opposite: reversal_evidence.append("StructureBreak")
@@ -321,7 +337,7 @@ class SignalEngine:
 
    strong_reversal_sources=sum(
     1 for x in reversal_evidence
-    if x in ("Alligator","DMI","CCI","CCI_Extreme_Reversal","OSMA","MACD_Slope","Structure","StructureBreak")
+    if x in ("Alligator","DMI","CCI","CCI_Extreme_Reversal","Hard_Reversal_Tripwire","OSMA","MACD_Slope","Structure","StructureBreak")
    )
    # REVERSAL SAFETY: prevent a stale high-confidence direction from being
    # released when the newest price-action/trend evidence has already turned.
@@ -391,6 +407,7 @@ class SignalEngine:
    and not reversal_conflict
    and not cci_hard_conflict
    and not cci_reversal_conflict
+   and not hard_reversal_tripwire
   )
 
   full_ok=(
@@ -437,7 +454,7 @@ class SignalEngine:
    "reversal_conflict":reversal_conflict,"reversal_safety":reversal_safety,"reversal_direction":reversal_direction,
    "reversal_evidence":reversal_evidence,"cci_direction":cci_direction,"cci_clear":cci_clear,"cci_hard_conflict":cci_hard_conflict,
    "cci_reversal_side":cci_reversal_side,"cci_extreme":cci_extreme,"cci_turning":cci_turning,
-   "cci_reversal_zone":cci_reversal_zone,"cci_reversal_conflict":cci_reversal_conflict,
+   "cci_reversal_zone":cci_reversal_zone,"cci_reversal_conflict":cci_reversal_conflict,"hard_reversal_tripwire":hard_reversal_tripwire,
    "effective_min_confidence":effective_min_confidence,
    "developing_signal":self.developing_side,"developing_strength":round(self.developing_strength,2),
    "developing_age":round(developing_age,1),"early_confirmation":early_ok,
