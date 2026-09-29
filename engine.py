@@ -102,6 +102,14 @@ class SignalEngine:
   atr_dir="CALL" if not atr_very_low and v["price"]>v["ema9"] else "PUT" if not atr_very_low and v["price"]<v["ema9"] else "WAIT"
   vote("ATR (14)",atr_dir,5)
 
+  # DUAL UT BOT CONFIRMATION — TradingView-style ATR trailing-stop logic.
+  # Fast: Key Value 4 / ATR 10. Slow: Key Value 7 / ATR 20.
+  # Both must agree for confirmation; this never becomes an 11th weighted vote.
+  ut_fast=v.get("ut_fast_direction",0); ut_slow=v.get("ut_slow_direction",0)
+  ut_fast_dir="CALL" if ut_fast==1 else "PUT" if ut_fast==-1 else "WAIT"
+  ut_slow_dir="CALL" if ut_slow==1 else "PUT" if ut_slow==-1 else "WAIT"
+  ut_confirmation="CALL" if ut_fast_dir=="CALL" and ut_slow_dir=="CALL" else "PUT" if ut_fast_dir=="PUT" and ut_slow_dir=="PUT" else "WAIT"
+
   st=v.get("supertrend"); st_dir=v.get("supertrend_direction")
   if st is not None and st_dir is not None:
    super_dir="CALL" if int(st_dir)==1 and v["price"]>st else "PUT" if int(st_dir)==-1 and v["price"]<st else "WAIT"
@@ -206,7 +214,13 @@ class SignalEngine:
     osma_ichimoku_dir=osma_dir
 
    if leader_direction!="WAIT":
-    if demarker_wma_dir==leader_direction:
+    # Dual UT Bot is a separate trigger/confirmation layer.
+   if ut_confirmation==leader_direction:
+    confirmation_bonus+=4.0
+   elif ut_confirmation in ("CALL","PUT"):
+    conflict_penalty+=5.0
+
+   if demarker_wma_dir==leader_direction:
      confirmation_bonus+=3.0
     elif demarker_wma_dir in ("CALL","PUT"):
      conflict_penalty+=3.0
@@ -380,7 +394,7 @@ class SignalEngine:
   )
 
   full_ok=(
-   leader_direction!="WAIT" and confidence>=effective_min_confidence
+   leader_direction!="WAIT" and ut_confirmation in (leader_direction,"WAIT") and confidence>=effective_min_confidence
    and strong_margin and trend_aligned
    and not cci_hard_conflict
    and not cci_reversal_conflict
@@ -416,7 +430,7 @@ class SignalEngine:
    "alligator_weak":alligator_weak,"alligator_conflict":alligator_conflict,
    "atr_very_low":atr_very_low,
    "adx":adx,"plus_di":plus_di,"minus_di":minus_di,"stoch_k":sk,"stoch_d":sd,
-   "dmi_direction":dmi_dir,"stoch_direction":stoch_dir,"osma_direction":osma_dir,"osma_hist":osma_hist,"ichimoku_direction":ichimoku_dir,"osma_ichimoku_direction":osma_ichimoku_dir,"demarker":dem,"wma9":wma9,"demarker_wma_direction":demarker_wma_dir,
+   "dmi_direction":dmi_dir,"stoch_direction":stoch_dir,"ut_fast_direction":ut_fast_dir,"ut_slow_direction":ut_slow_dir,"ut_confirmation":ut_confirmation,"osma_direction":osma_dir,"osma_hist":osma_hist,"ichimoku_direction":ichimoku_dir,"osma_ichimoku_direction":osma_ichimoku_dir,"demarker":dem,"wma9":wma9,"demarker_wma_direction":demarker_wma_dir,
    "confirmation_bonus":round(confirmation_bonus,1),"market_structure":market_structure,"market_structure_pattern":v.get("market_structure_pattern","INSUFFICIENT"),"market_structure_break":market_structure_break,"candle_confirmation":candle_confirmation,"support":support,"resistance":resistance,"near_support":near_support,"near_resistance":near_resistance,"support_break":support_break,"resistance_break":resistance_break,"sr_confirmation":sr_confirmation,"candle_direction":candle_direction,"candle_body_ratio":round(candle_body_ratio,3),"candle_confirmed":candle_confirmed,
    "momentum_bonus":round(momentum_bonus,1),"momentum_side":momentum_side,"momentum_same_count":momentum_same_count,
    "conflict_penalty":round(conflict_penalty,1),
