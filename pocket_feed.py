@@ -63,8 +63,17 @@ class PocketOptionFeed:
                 return data[1]
             return None
         if isinstance(data, dict) and "command" in data:
-            return data.get("data") or {}
-        return data if isinstance(data, dict) else None
+            data = data.get("data") or {}
+        if not isinstance(data, dict):
+            return None
+
+        # Normalize the current Pocket Option auth protocol while preserving
+        # the captured session, uid, and demo/real fields.
+        payload = dict(data)
+        payload.setdefault("platform", 2)
+        payload.setdefault("isFastHistory", True)
+        payload.setdefault("isOptimized", True)
+        return payload
 
     def auth_packet(self):
         payload = self._auth_payload()
@@ -413,7 +422,6 @@ class PocketOptionFeed:
 
         while self.running:
             try:
-                log.info("connecting to Pocket Option websocket: %s", url)
                 log.info("connecting to Pocket Option websocket: %s", url)
                 async with websockets.connect(
                     url,
