@@ -436,10 +436,24 @@ class SignalEngine:
         )
         effective_min_confidence = self.min_confidence
 
+        # Probability-style quality gate. This is NOT a claimed win-rate or
+        # statistically calibrated probability; it combines independent
+        # agreement/confirmation dimensions into a conservative setup estimate.
+        probability_threshold = 78.0
+        margin_quality = max(0.0, min(100.0, 50.0 + adjusted_margin * 4.0))
+        setup_probability = round(
+            0.45 * confidence
+            + 0.25 * (core_agreement / 3.0 * 100.0)
+            + 0.20 * (trend_votes / 3.0 * 100.0)
+            + 0.10 * margin_quality,
+            1,
+        )
+
         full_ok = (
             raw_candidate != "WAIT"
             and candidate_persistent
             and confidence >= effective_min_confidence
+            and setup_probability >= probability_threshold
             and adjusted_margin >= 6.0
             and trend_aligned
             and not safety_block
@@ -551,6 +565,9 @@ class SignalEngine:
             "cci_reversal_conflict": bool(cci_reversal_side in ("CALL", "PUT") and cci_reversal_side != leader_direction),
             "hard_reversal_tripwire": hard_reversal_tripwire,
             "effective_min_confidence": effective_min_confidence,
+            "probability_threshold": probability_threshold,
+            "setup_probability": setup_probability,
+            "probability_gate": bool(setup_probability >= probability_threshold),
             "core_agreement": core_agreement,
             "core_conflicts": core_conflicts,
             "developing_signal": self.developing_side,
