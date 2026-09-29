@@ -143,6 +143,33 @@ def supertrend(df,period=10,multiplier=3.0):
  st.iloc[0]=final_lower.iloc[0]
  return st,direction
 
+def ut_bot_direction(df, key_value=4.0, atr_period=10):
+ # UT Bot-style ATR trailing stop direction.
+ close=df.close.astype(float).to_numpy()
+ a=atr(df,atr_period).to_numpy()
+ n=len(close)
+ if n==0: return pd.Series(dtype=int,index=df.index)
+ stop=np.full(n,np.nan); direction=np.zeros(n,dtype=int)
+ for j in range(n):
+  if not np.isfinite(a[j]):
+   if j==0: stop[j]=close[j]; direction[j]=0
+   else: stop[j]=stop[j-1]; direction[j]=direction[j-1]
+   continue
+  loss=key_value*a[j]
+  if j==0:
+   stop[j]=close[j]-loss; direction[j]=1; continue
+  prev_stop=stop[j-1]; prev_close=close[j-1]
+  if close[j]>prev_stop and prev_close>prev_stop:
+   stop[j]=max(prev_stop,close[j]-loss)
+  elif close[j]<prev_stop and prev_close<prev_stop:
+   stop[j]=min(prev_stop,close[j]+loss)
+  elif close[j]>prev_stop:
+   stop[j]=close[j]-loss
+  else:
+   stop[j]=close[j]+loss
+  direction[j]=1 if close[j]>stop[j] else -1 if close[j]<stop[j] else direction[j-1]
+ return pd.Series(direction,index=df.index)
+
 def calculate(candles):
  if len(candles)<35:return {"ready":False,"reason":"Need at least 35 candles","values":{}}
  df=pd.DataFrame(candles); close=df.close.astype(float)
@@ -153,6 +180,8 @@ def calculate(candles):
  atr_series=atr(df)
  atr_base=atr_series.rolling(50,min_periods=14).mean()
  st,st_dir=supertrend(df,10,3.0)
+ ut_fast=ut_bot_direction(df,4.0,10)
+ ut_slow=ut_bot_direction(df,7.0,20)
  stoch_k,stoch_d=stochastic(df,14,3,3)
  adx_series,plus_di,minus_di=adx_dmi(df,14)
  cci_series=cci(df,14)
@@ -222,7 +251,9 @@ def calculate(candles):
   "market_structure_highs":[x[1] for x in last_highs],"market_structure_lows":[x[1] for x in last_lows],
   "bb_mid":last(bbmid),"bb_upper":last(bbup),"bb_lower":last(bblow),
   "bb_width":last(bbwidth),"bb_pct":last(bbpct),
-  "supertrend":last(st),"supertrend_direction":int(st_dir.iloc[-1]),\n  "ut_fast_direction":int(ut_fast.iloc[-1]),"ut_slow_direction":int(ut_slow.iloc[-1]),\n  "ut_fast_prev":int(ut_fast.iloc[-2]) if len(ut_fast)>1 else 0,"ut_slow_prev":int(ut_slow.iloc[-2]) if len(ut_slow)>1 else 0,
+  "supertrend":last(st),"supertrend_direction":int(st_dir.iloc[-1]),
+  "ut_fast_direction":int(ut_fast.iloc[-1]),"ut_slow_direction":int(ut_slow.iloc[-1]),
+  "ut_fast_prev":int(ut_fast.iloc[-2]) if len(ut_fast)>1 else 0,"ut_slow_prev":int(ut_slow.iloc[-2]) if len(ut_slow)>1 else 0,\n  "ut_fast_direction":int(ut_fast.iloc[-1]),"ut_slow_direction":int(ut_slow.iloc[-1]),\n  "ut_fast_prev":int(ut_fast.iloc[-2]) if len(ut_fast)>1 else 0,"ut_slow_prev":int(ut_slow.iloc[-2]) if len(ut_slow)>1 else 0,
   "stoch_k":last(stoch_k),"stoch_d":last(stoch_d),
   "adx":last(adx_series),"plus_di":last(plus_di),"minus_di":last(minus_di),
   "demarker":last(demarker_series),"demarker_prev":float(demarker_series.iloc[-2]) if len(demarker_series)>1 and pd.notna(demarker_series.iloc[-2]) else None,
