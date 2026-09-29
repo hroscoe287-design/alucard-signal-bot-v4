@@ -180,14 +180,15 @@ class PocketOptionFeed:
         return str(packet[0]), packet[1], attachments
 
     async def _handshake(self, ws):
-        first = await asyncio.wait_for(ws.recv(), timeout=15)
+        log.info("Pocket Option Engine.IO handshake: waiting for server hello")
+        first = await asyncio.wait_for(ws.recv(), timeout=20)
         if isinstance(first, bytes):
             first = first.decode("utf-8", "ignore")
         if not str(first).startswith("0"):
             raise RuntimeError(f"unexpected Engine.IO handshake: {str(first)[:120]}")
         await ws.send("40")
 
-        deadline = time.monotonic() + 15
+        deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
             msg = await asyncio.wait_for(ws.recv(), timeout=max(1, deadline - time.monotonic()))
             if isinstance(msg, bytes):
@@ -401,15 +402,28 @@ class PocketOptionFeed:
     async def run(self):
         self.running = True
         delay = 2
+        region_urls = [
+            self._url(),
+            "wss://api-eu.po.market/socket.io/?EIO=4&transport=websocket",
+            "wss://api-msk.po.market/socket.io/?EIO=4&transport=websocket",
+            "wss://api-spb.po.market/socket.io/?EIO=4&transport=websocket",
+            "wss://api-us-north.po.market/socket.io/?EIO=4&transport=websocket",
+            "wss://api-us-south.po.market/socket.io/?EIO=4&transport=websocket",
+        ]
+        region_urls = list(dict.fromkeys(region_urls))
+        region_index = 0
 
         while self.running:
             try:
-                url = self._url()
-                log.info("connecting to Pocket Option websocket")
+                url = region_urls[region_index % len(region_urls)]
+                region_index += 1
+                log.info("connecting to Pocket Option websocket: %s", url)
                 async with websockets.connect(
                     url,
+                    open_timeout=20,
                     ping_interval=20,
                     ping_timeout=20,
+                    close_timeout=5,
                     max_size=16 * 1024 * 1024,
                     max_queue=32,
                     compression=None,
@@ -427,8 +441,11 @@ class PocketOptionFeed:
                     self._update_assets_samples = 0
                     delay = 2
 
+                    log.info("Pocket Option websocket transport connected; starting Engine.IO handshake")
                     await self._handshake(ws)
+                    log.info("Pocket Option Engine.IO/Socket.IO handshake complete")
                     await self._authenticate(ws)
+                    log.info("Pocket Option authentication complete; subscribing to %s/%ss", self.asset, self.period)
                     await self._subscribe(ws)
                     log.info(
                         "Pocket Option feed authenticated; subscribed to %s/%ss",
