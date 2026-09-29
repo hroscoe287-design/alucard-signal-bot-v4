@@ -12,6 +12,8 @@ class AIAnalyst:
         self.lookback=lookback
         self.horizon=horizon
         self.max_matches=max_matches
+        self._cache_key=None
+        self._cache=None
 
     @staticmethod
     def _ret(a,b):
@@ -138,6 +140,13 @@ class AIAnalyst:
     def analyze(self,asset,timeframe,engine_result,candles,indicators=None):
         candles=[c for c in (candles or []) if all(k in c for k in ("ts","open","high","low","close"))]
         indicators=indicators or {}
+        cache_key=(asset,timeframe,candles[-1]["ts"] if candles else 0)
+        if cache_key==self._cache_key and self._cache is not None:
+            cached=dict(self._cache)
+            cached["engine_signal"]=engine_result.get("signal","WAIT")
+            cached["engine_agreement"]=cached.get("decision")==cached["engine_signal"] and cached.get("decision") in ("CALL","PUT")
+            cached["engine_conflict"]=cached.get("decision") in ("CALL","PUT") and cached["engine_signal"] in ("CALL","PUT") and cached.get("decision")!=cached["engine_signal"]
+            return cached
         hist=self._historical(candles)
         iv=self._indicator_vote(indicators)
         st=self._structure(candles)
@@ -157,7 +166,7 @@ class AIAnalyst:
         engine_dir=engine_result.get("signal","WAIT")
         agreement=engine_dir==direction and direction in ("CALL","PUT")
         conflict=engine_dir in ("CALL","PUT") and direction in ("CALL","PUT") and engine_dir!=direction
-        return {
+        result={
             "enabled":True,"mode":"SUPER_AI_CLASSICAL","asset":asset,"timeframe":timeframe,
             "decision":direction,"confidence":confidence,"matches":hist["matches"],
             "best_distance":hist.get("best_distance"),"multi_timeframe":mtf,
@@ -166,3 +175,6 @@ class AIAnalyst:
             "reason":"Super analysis: historical patterns + multi-timeframe trend + Alligator/MACD/CCI + ADX/DMI + structure/reversal checks",
             "warning":"Confidence is model agreement/decision strength, not a guaranteed win probability."
         }
+        self._cache_key=cache_key
+        self._cache=dict(result)
+        return result
