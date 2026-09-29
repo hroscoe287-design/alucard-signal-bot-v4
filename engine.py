@@ -171,6 +171,19 @@ class SignalEngine:
         )
         vote("Supertrend 10/3", super_dir, 8.0)
 
+        # FCB is a structure filter, not an additional weighted vote.
+        fcb_upper=v.get("fcb_upper")
+        fcb_lower=v.get("fcb_lower")
+        fcb_mid=v.get("fcb_mid")
+        fcb_mid_prev=v.get("fcb_mid_prev")
+        fcb_ready=all(x is not None for x in (fcb_upper,fcb_lower,fcb_mid,price))
+        fcb_slope=(fcb_mid-fcb_mid_prev) if fcb_mid_prev is not None else None
+        fcb_dir=(
+            "CALL" if fcb_ready and price>=fcb_mid and fcb_slope is not None and fcb_slope>0
+            else "PUT" if fcb_ready and price<=fcb_mid and fcb_slope is not None and fcb_slope<0
+            else "WAIT"
+        )
+
         # ---------- confirmation context ----------
         adx = v.get("adx")
         plus_di = v.get("plus_di")
@@ -415,17 +428,19 @@ class SignalEngine:
             elif spike_detected and spike_direction == opposite and spike_strength >= 0.45:
                 spike_block = True
 
-        # Lightweight confirmation layer: Supertrend + DMI/ADX are not
-        # additional weighted votes. When trend strength is meaningful, they
-        # veto a candidate only when both independently point the other way.
-        # This adds confirmation without materially slowing signal generation.
+        # Lightweight confirmation layer: Supertrend + DMI/ADX + FCB are not
+        # additional weighted votes. FCB only joins a veto when the other
+        # independent trend checks already disagree, preserving responsiveness.
         confirmation_direction_block = False
         if leader_direction in ("CALL", "PUT"):
             opposite = "PUT" if leader_direction == "CALL" else "CALL"
             strong_adx = bool(adx_ready and adx >= 20)
             super_conflict = super_dir == opposite
             dmi_conflict = dmi_dir == opposite
-            if strong_adx and super_conflict and dmi_conflict:
+            fcb_conflict = fcb_dir == opposite
+            # FCB only participates in the veto when trend strength is already
+            # confirmed by ADX and both Supertrend and DMI disagree.
+            if strong_adx and super_conflict and dmi_conflict and fcb_conflict:
                 confirmation_direction_block = True
 
         safety_block = (
@@ -509,6 +524,11 @@ class SignalEngine:
             "stoch_k": sk,
             "stoch_d": sd,
             "dmi_direction": dmi_dir,
+            "fcb_direction": fcb_dir,
+            "fcb_upper": fcb_upper,
+            "fcb_lower": fcb_lower,
+            "fcb_mid": fcb_mid,
+            "fcb_slope": round(fcb_slope,8) if fcb_slope is not None else None,
             "stoch_direction": stoch_dir,
             "ut_fast_direction": ut_fast_dir,
             "ut_slow_direction": ut_slow_dir,
