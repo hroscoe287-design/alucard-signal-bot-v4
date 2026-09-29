@@ -40,6 +40,14 @@ class SignalEngine:
 
         v = ind["values"]
         call = put = 0.0
+
+        # Spike layer: a separate momentum/exhaustion safety system. It does
+        # not alter the 10-vote baseline, so the existing model remains intact.
+        spike_detected = bool(v.get("spike_detected", False))
+        spike_direction = v.get("spike_direction", "WAIT")
+        spike_strength = float(v.get("spike_strength") or 0.0)
+        spike_exhaustion = bool(v.get("spike_exhaustion", False))
+        spike_acceleration = v.get("spike_acceleration_direction", "WAIT")
         votes = []
 
         def vote(name, direction, weight):
@@ -396,7 +404,18 @@ class SignalEngine:
             and self.developing_strength >= 0.52
         )
 
-        safety_block = core_direction_block or exhaustion_block
+        spike_block = False
+        if leader_direction in ("CALL", "PUT"):
+            opposite = "PUT" if leader_direction == "CALL" else "CALL"
+            # Do not chase a strong move that is already reversing.
+            if spike_exhaustion:
+                spike_block = True
+            # A fresh, unusually large move directly against the proposed
+            # direction is treated as a fast veto; aligned spikes do not delay.
+            elif spike_detected and spike_direction == opposite and spike_strength >= 0.45:
+                spike_block = True
+
+        safety_block = core_direction_block or exhaustion_block or spike_block
         effective_min_confidence = self.min_confidence
 
         full_ok = (
@@ -417,6 +436,8 @@ class SignalEngine:
                 f"{signal} confirmation: {directional_votes}/10 agree ({confidence:.0f}%), "
                 f"core {core_agreement}/3, trend {trend_votes}/3, margin {adjusted_margin:.1f}"
             )
+        elif spike_block:
+            reason = f"WAIT: spike protection blocked {leader_direction}; abnormal momentum is opposite or reversing"
         elif safety_block:
             reason = f"WAIT: reversal protection blocked stale {leader_direction}; Alligator/MACD/CCI evidence turned"
         elif not trend_aligned:
@@ -484,6 +505,16 @@ class SignalEngine:
             "momentum_bonus": round(momentum_bonus, 1),
             "momentum_side": momentum_side,
             "momentum_same_count": momentum_same_count,
+            "spike_detected": spike_detected,
+            "spike_direction": spike_direction,
+            "spike_strength": round(spike_strength, 3),
+            "spike_exhaustion": spike_exhaustion,
+            "spike_acceleration_direction": spike_acceleration,
+            "spike_range_ratio": v.get("spike_range_ratio"),
+            "spike_move_ratio": v.get("spike_move_ratio"),
+            "spike_volume_ratio": v.get("spike_volume_ratio"),
+            "spike_volume_available": bool(v.get("spike_volume_available", False)),
+            "spike_protection": spike_block,
             "reversal_conflict": safety_block,
             "reversal_safety": safety_block,
             "reversal_direction": cci_reversal_side,
