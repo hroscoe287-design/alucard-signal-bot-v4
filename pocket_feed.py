@@ -64,28 +64,24 @@ class PocketOptionFeed:
             data = json.loads(raw)
         except Exception:
             data = {"session": raw}
-        if isinstance(data, dict):
-            data = dict(data)
-            data.setdefault("platform", 2)
-            data.setdefault("isFastHistory", True)
-            data.setdefault("isOptimized", True)
         if isinstance(data, list):
             if len(data) >= 2 and data[0] == "auth":
                 return data[1]
             return None
         if isinstance(data, dict) and "command" in data:
-            return data.get("data") or {}
-        return data if isinstance(data, dict) else None
+            data = data.get("data") or {}
+        if not isinstance(data, dict):
+            return None
+
+        # Normalize the current Pocket Option auth protocol while preserving
+        # the captured session, uid, and demo/real fields.
+        payload = dict(data)
+        payload.setdefault("platform", 2)
+        payload.setdefault("isFastHistory", True)
+        payload.setdefault("isOptimized", True)
+        return payload
 
     def auth_packet(self):
-        raw = self.auth_json.strip()
-        if raw.startswith("42"):
-            try:
-                packet = json.loads(raw[2:])
-                if isinstance(packet, list) and len(packet) >= 2 and packet[0] == "auth":
-                    return raw
-            except Exception:
-                pass
         payload = self._auth_payload()
         if payload is None:
             return None
