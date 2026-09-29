@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from quantum_analyzer import analyze as quantum_analyze
 
 
 class SignalEngine:
@@ -39,6 +40,7 @@ class SignalEngine:
             }
 
         v = ind["values"]
+        quantum = quantum_analyze(v)
         call = put = 0.0
 
         # Spike layer: a separate momentum/exhaustion safety system. It does
@@ -443,11 +445,26 @@ class SignalEngine:
             if strong_adx and super_conflict and dmi_conflict and fcb_conflict:
                 confirmation_direction_block = True
 
+        # Quantum-inspired safety layer: local, deterministic, and low-latency.
+        # It may veto a candidate when two of the three directional leaders
+        # disagree with the quantum-inspired state. It cannot create a signal
+        # by itself, so the existing V4 gates remain authoritative.
+        quantum_block = bool(
+            quantum.get("veto")
+            or (
+                leader_direction in ("CALL", "PUT")
+                and quantum.get("direction") in ("CALL", "PUT")
+                and quantum.get("direction") != leader_direction
+                and quantum.get("confidence", 0) >= 72
+            )
+        )
+
         safety_block = (
             core_direction_block
             or exhaustion_block
             or spike_block
             or confirmation_direction_block
+            or quantum_block
         )
         effective_min_confidence = self.min_confidence
 
@@ -485,6 +502,8 @@ class SignalEngine:
             )
         elif spike_block:
             reason = f"WAIT: spike protection blocked {leader_direction}; abnormal momentum is opposite or reversing"
+        elif quantum_block:
+            reason = f"WAIT: quantum-inspired state conflicts with {leader_direction}; interference veto active"
         elif confirmation_direction_block:
             reason = f"WAIT: Supertrend + DMI/ADX conflict with {leader_direction}; trend confirmation veto active"
         elif safety_block:
@@ -570,6 +589,16 @@ class SignalEngine:
             "spike_volume_available": bool(v.get("spike_volume_available", False)),
             "spike_protection": spike_block,
             "confirmation_direction_block": confirmation_direction_block,
+            "quantum_direction": quantum.get("direction", "WAIT"),
+            "quantum_confidence": quantum.get("confidence", 0.0),
+            "quantum_state_strength": quantum.get("state_strength", 0.0),
+            "quantum_call_amplitude": quantum.get("call_amplitude", 0.0),
+            "quantum_put_amplitude": quantum.get("put_amplitude", 0.0),
+            "quantum_interference": quantum.get("interference", 0.0),
+            "quantum_leader_agreement": quantum.get("leader_agreement", 0),
+            "quantum_leader_conflict": quantum.get("leader_conflict", 0),
+            "quantum_veto": quantum_block,
+            "quantum_mode": quantum.get("mode", "QUANTUM_INSPIRED_CLASSICAL"),
             "reversal_conflict": safety_block,
             "reversal_safety": safety_block,
             "reversal_direction": cci_reversal_side,
