@@ -222,7 +222,7 @@ def calculate(candles):
   "market_structure_highs":[x[1] for x in last_highs],"market_structure_lows":[x[1] for x in last_lows],
   "bb_mid":last(bbmid),"bb_upper":last(bbup),"bb_lower":last(bblow),
   "bb_width":last(bbwidth),"bb_pct":last(bbpct),
-  "supertrend":last(st),"supertrend_direction":int(st_dir.iloc[-1]),
+  "supertrend":last(st),"supertrend_direction":int(st_dir.iloc[-1]),\n  "ut_fast_direction":int(ut_fast.iloc[-1]),"ut_slow_direction":int(ut_slow.iloc[-1]),\n  "ut_fast_prev":int(ut_fast.iloc[-2]) if len(ut_fast)>1 else 0,"ut_slow_prev":int(ut_slow.iloc[-2]) if len(ut_slow)>1 else 0,
   "stoch_k":last(stoch_k),"stoch_d":last(stoch_d),
   "adx":last(adx_series),"plus_di":last(plus_di),"minus_di":last(minus_di),
   "demarker":last(demarker_series),"demarker_prev":float(demarker_series.iloc[-2]) if len(demarker_series)>1 and pd.notna(demarker_series.iloc[-2]) else None,
