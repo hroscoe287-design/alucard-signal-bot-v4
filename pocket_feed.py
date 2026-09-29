@@ -78,6 +78,14 @@ class PocketOptionFeed:
         return data if isinstance(data, dict) else None
 
     def auth_packet(self):
+        raw = self.auth_json.strip()
+        if raw.startswith("42"):
+            try:
+                packet = json.loads(raw[2:])
+                if isinstance(packet, list) and len(packet) >= 2 and packet[0] == "auth":
+                    return raw
+            except Exception:
+                pass
         payload = self._auth_payload()
         if payload is None:
             return None
@@ -216,7 +224,7 @@ class PocketOptionFeed:
             raise RuntimeError("PO_AUTH_JSON is not configured")
         await ws.send(packet)
 
-        auth_deadline = time.monotonic() + 15
+        auth_deadline = time.monotonic() + 45
         while time.monotonic() < auth_deadline:
             msg = await asyncio.wait_for(ws.recv(), timeout=max(1, auth_deadline - time.monotonic()))
             if isinstance(msg, bytes):
@@ -247,6 +255,8 @@ class PocketOptionFeed:
                 self.authenticated = True
                 log.info("Pocket Option authorization accepted")
                 return
+            if event == "updateAssets":
+                log.info("Pocket Option auth-stage assets received; continuing authorization wait")
 
         raise RuntimeError("Pocket Option authorization response not received")
 
