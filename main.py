@@ -16,7 +16,7 @@ builder=CandleBuilder(TIMEFRAMES.get(settings.timeframe,60),settings.history_siz
 engine=SignalEngine(settings.min_confidence)
 ai_reviewer=AIReviewer()
 ai_analyst=AIAnalyst()
-state={"asset":settings.asset,"timeframe":settings.timeframe,"price":None,"last_tick":0.0,"signal":{"signal":"WAIT","confidence":0,"reason":"Waiting for market data"},"indicators":{},"entry_until":0.0,"entry_signal":"WAIT","ai_review":{"enabled":False,"decision":"NO_REVIEW","reason":"AI confirmation not configured"},"ai_analyst":{"enabled":True,"decision":"WAIT","confidence":0,"matches":0,"mode":"SHADOW","reason":"Waiting for candle history"}}
+state={"asset":settings.asset,"timeframe":settings.timeframe,"price":None,"last_tick":0.0,"signal":{"signal":"WAIT","confidence":0,"reason":"Waiting for market data"},"indicators":{},"entry_until":0.0,"entry_signal":"WAIT","ai_review":{"enabled":False,"decision":"NO_REVIEW","reason":"AI confirmation not configured"},"ai_analyst":{"enabled":True,"decision":"WAIT","confidence":0,"matches":0,"mode":"SUPER_AI_CLASSICAL","reason":"Waiting for candle history"}}
 feed=None
 feed_task=None
 signal_task=None
@@ -94,7 +94,8 @@ def on_history(candles):
   state["ai_analyst"]=ai_analyst.analyze(state["asset"],state["timeframe"],state["signal"],builder.snapshot(),state["indicators"])
   state["signal"]["ai_analyst_decision"]=state["ai_analyst"].get("decision","WAIT")
   state["signal"]["ai_analyst_confidence"]=state["ai_analyst"].get("confidence",0)
-  state["signal"]["ai_confirmation"]=f"{state[\"ai_analyst\"].get(\"decision\",\"WAIT\")} {state[\"ai_analyst\"].get(\"confidence\",0):.0f}%"
+  aa=state["ai_analyst"]
+  state["signal"]["ai_confirmation"]=f"{aa.get('decision','WAIT')} {aa.get('confidence',0):.0f}%"
   refresh_entry_window(state["signal"], builder.candles[-1].ts if builder.candles else None)
   schedule_ai_review()
 
@@ -113,7 +114,8 @@ async def process_latest_ticks():
    state["ai_analyst"]=ai_analyst.analyze(state["asset"],state["timeframe"],state["signal"],snapshot,state["indicators"])
    state["signal"]["ai_analyst_decision"]=state["ai_analyst"].get("decision","WAIT")
    state["signal"]["ai_analyst_confidence"]=state["ai_analyst"].get("confidence",0)
-   state["signal"]["ai_confirmation"]=f"{state[\"ai_analyst\"].get(\"decision\",\"WAIT\")} {state[\"ai_analyst\"].get(\"confidence\",0):.0f}%"
+   aa=state["ai_analyst"]
+   state["signal"]["ai_confirmation"]=f"{aa.get('decision','WAIT')} {aa.get('confidence',0):.0f}%"
    refresh_entry_window(state["signal"],snapshot[-1]["ts"] if snapshot else None)
    schedule_ai_review()
    if generation==signal_generation:
