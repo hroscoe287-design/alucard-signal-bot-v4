@@ -63,32 +63,10 @@ class PocketOptionFeed:
                 return data[1]
             return None
         if isinstance(data, dict) and "command" in data:
-            data = data.get("data") or {}
-        if not isinstance(data, dict):
-            return None
-
-        # Normalize the current Pocket Option auth protocol while preserving
-        # the captured session, uid, and demo/real fields.
-        payload = dict(data)
-        payload.setdefault("platform", 2)
-        payload.setdefault("isFastHistory", True)
-        payload.setdefault("isOptimized", True)
-        return payload
+            return data.get("data") or {}
+        return data if isinstance(data, dict) else None
 
     def auth_packet(self):
-        raw = self.auth_json.strip()
-        if not raw:
-            return None
-
-        # Preserve a complete captured Socket.IO auth frame exactly.
-        if raw.startswith("42") and raw[2:].lstrip().startswith("["):
-            try:
-                packet = json.loads(raw[2:])
-                if isinstance(packet, list) and len(packet) >= 2 and packet[0] == "auth" and isinstance(packet[1], dict):
-                    return raw
-            except Exception:
-                pass
-
         payload = self._auth_payload()
         if payload is None:
             return None
@@ -151,7 +129,7 @@ class PocketOptionFeed:
     async def _keepalive(self, ws):
         while self.running:
             try:
-                await ws.send('42["ps"]')
+                await ws.send(self._event_packet("ps", {}))
                 await asyncio.sleep(15)
             except asyncio.CancelledError:
                 raise
@@ -202,15 +180,14 @@ class PocketOptionFeed:
         return str(packet[0]), packet[1], attachments
 
     async def _handshake(self, ws):
-        log.info("Pocket Option Engine.IO handshake: waiting for server hello")
-        first = await asyncio.wait_for(ws.recv(), timeout=20)
+        first = await asyncio.wait_for(ws.recv(), timeout=15)
         if isinstance(first, bytes):
             first = first.decode("utf-8", "ignore")
         if not str(first).startswith("0"):
             raise RuntimeError(f"unexpected Engine.IO handshake: {str(first)[:120]}")
         await ws.send("40")
 
-        deadline = time.monotonic() + 20
+        deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
             msg = await asyncio.wait_for(ws.recv(), timeout=max(1, deadline - time.monotonic()))
             if isinstance(msg, bytes):
@@ -228,7 +205,7 @@ class PocketOptionFeed:
             raise RuntimeError("PO_AUTH_JSON is not configured")
         await ws.send(packet)
 
-        auth_deadline = time.monotonic() + 45
+        auth_deadline = time.monotonic() + 15
         while time.monotonic() < auth_deadline:
             msg = await asyncio.wait_for(ws.recv(), timeout=max(1, auth_deadline - time.monotonic()))
             if isinstance(msg, bytes):
@@ -238,15 +215,12 @@ class PocketOptionFeed:
             if text_msg == "2":
                 await ws.send("3")
                 continue
-            if text_msg.startswith("41") or text_msg.startswith("44"):
-                raise RuntimeError(f"Pocket Option authorization rejected/error: {text_msg[:400]}")
+            if text_msg.startswith("41"):
+                raise RuntimeError(f"Pocket Option authorization rejected: {text_msg[:200]}")
 
             decoded = self._decode_socket_packet(text_msg)
             if decoded is None:
-                if text_msg:
-                    log.warning("Pocket Option auth-stage message: %s", text_msg[:500])
                 continue
-            log.info("Pocket Option auth-stage event: %s", decoded[0])
             event, body, count = decoded
 
             if count:
@@ -427,21 +401,15 @@ class PocketOptionFeed:
     async def run(self):
         self.running = True
         delay = 2
-        # Keep the configured Pocket Option region stable. Rapidly rotating
-        # regions can create overlapping sessions and cause the broker to close
-        # a newly authenticated socket before the market subscription starts.
-        # The configured URL is the same endpoint used by the working rollback.
-        url = self._url()
 
         while self.running:
             try:
-                log.info("connecting to Pocket Option websocket: %s", url)
+                url = self._url()
+                log.info("connecting to Pocket Option websocket")
                 async with websockets.connect(
                     url,
-                    open_timeout=20,
                     ping_interval=20,
                     ping_timeout=20,
-                    close_timeout=5,
                     max_size=16 * 1024 * 1024,
                     max_queue=32,
                     compression=None,
@@ -459,11 +427,8 @@ class PocketOptionFeed:
                     self._update_assets_samples = 0
                     delay = 2
 
-                    log.info("Pocket Option websocket transport connected; starting Engine.IO handshake")
                     await self._handshake(ws)
-                    log.info("Pocket Option Engine.IO/Socket.IO handshake complete")
                     await self._authenticate(ws)
-                    log.info("Pocket Option authentication complete; subscribing to %s/%ss", self.asset, self.period)
                     await self._subscribe(ws)
                     log.info(
                         "Pocket Option feed authenticated; subscribed to %s/%ss",
