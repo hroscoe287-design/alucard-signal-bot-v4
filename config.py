@@ -31,5 +31,5 @@ class Settings:
  min_confidence:float=float(os.getenv("MIN_CONFIDENCE","60"))
  stale_seconds:float=float(os.getenv("STALE_SECONDS","8"))
  entry_seconds:int=int(os.getenv("ENTRY_SECONDS","12"))
- history_size:int=int(os.getenv("HISTORY_SIZE","250"))
+ history_size:int=int(os.getenv("HISTORY_SIZE","500"))
 settings=Settings()
