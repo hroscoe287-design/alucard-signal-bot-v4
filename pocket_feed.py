@@ -24,6 +24,9 @@ class PocketOptionFeed:
         self.connected = False
         self.authenticated = False
         self.last_tick = 0
+        self.last_market_ts = 0.0
+        self.last_tick_latency_ms = None
+        self.last_tick_source = ""
         self.last_error = ""
         self.ws = None
         self._update_stream_samples = 0
@@ -408,6 +411,8 @@ class PocketOptionFeed:
                     ping_interval=20,
                     ping_timeout=20,
                     max_size=16 * 1024 * 1024,
+                    max_queue=32,
+                    compression=None,
                     additional_headers={
                         "Origin": "https://pocketoption.com",
                         "User-Agent": "Mozilla/5.0",
@@ -440,13 +445,14 @@ class PocketOptionFeed:
                                 parsed_binary = self._extract_binary_tick(msg)
                                 if parsed_binary:
                                     asset, price, ts = parsed_binary
-                                    self.last_tick = time.time()
+                                    received_at = time.time()
+                                    self.last_tick = received_at
+                                    self.last_market_ts = float(ts or 0)
+                                    self.last_tick_latency_ms = max(0.0, (received_at - self.last_market_ts) * 1000.0) if self.last_market_ts else None
+                                    self.last_tick_source = "binary"
                                     self.on_tick(asset, price, ts)
-                                    log.info(
-                                        "Pocket Option binary market tick received: %s %.8f",
-                                        asset,
-                                        price,
-                                    )
+                                    if self._update_stream_samples < 5:
+                                        log.info("Pocket Option binary market tick received: %s %.8f latency_ms=%.1f", asset, price, self.last_tick_latency_ms or 0.0)
                                 else:
                                     log.info("Pocket Option binary frame received: %d bytes hex=%s", len(msg), msg[:32].hex())
                                 continue
@@ -492,12 +498,8 @@ class PocketOptionFeed:
                                     self._safe_body_summary(body, 2200),
                                 )
 
-                            log.info(
-                                "Pocket Option event received: %s body_type=%s attachments=%d",
-                                event,
-                                type(body).__name__,
-                                count,
-                            )
+                            if event != "updateStream":
+                                log.info("Pocket Option event received: %s body_type=%s attachments=%d", event, type(body).__name__, count)
 
                             if event == "updateHistoryNewFast" and self.on_history:
                                 history = self._extract_history(body)
@@ -511,13 +513,14 @@ class PocketOptionFeed:
                                 stamp = float(ts) if ts else time.time()
                                 if stamp > 10_000_000_000:
                                     stamp /= 1000.0
-                                self.last_tick = time.time()
+                                received_at = time.time()
+                                self.last_tick = received_at
+                                self.last_market_ts = stamp
+                                self.last_tick_latency_ms = max(0.0, (received_at - stamp) * 1000.0) if stamp else None
+                                self.last_tick_source = event
                                 self.on_tick(asset, price, stamp)
-                                log.info(
-                                    "Pocket Option market tick received: %s %.8f",
-                                    asset,
-                                    price,
-                                )
+                                if self._update_stream_samples <= 5:
+                                    log.info("Pocket Option market tick received: %s %.8f latency_ms=%.1f", asset, price, self.last_tick_latency_ms or 0.0)
                             elif event == "updateStream":
                                 if self._update_stream_rejected_samples < 5:
                                     self._update_stream_rejected_samples += 1
