@@ -281,6 +281,15 @@ class SignalEngine:
   if cci_reversal_conflict:
    conflict_penalty += 6.0 if cci_reversal_zone else 4.0
 
+  # MACD REVERSAL INPUTS MUST BE AVAILABLE BEFORE THE HARD TRIPWIRE.
+  # Histogram slope can reverse before the histogram crosses zero.
+  macd_hist=v.get("macd_hist")
+  macd_hist_prev=v.get("macd_hist_prev")
+  macd_slope_dir="WAIT"
+  if macd_hist is not None and macd_hist_prev is not None:
+   if macd_hist>macd_hist_prev: macd_slope_dir="CALL"
+   elif macd_hist<macd_hist_prev: macd_slope_dir="PUT"
+
   # HARD REVERSAL TRIPWIRE:
   # Extreme CCI turning against the candidate plus MACD momentum turning
   # against it is treated as immediate reversal evidence. Alligator slope
@@ -295,15 +304,6 @@ class SignalEngine:
    if cci_reversal_side==opposite and macd_turn_against and (alligator_slope_dir==opposite or cci_reversal_zone):
     hard_reversal_tripwire=True
     conflict_penalty += 10.0
-
-  # MACD REVERSAL SLOPE: histogram direction can change before the MACD vote
-  # crosses zero. It is used only as a reversal-safety input, never as a new vote.
-  macd_hist=v.get("macd_hist")
-  macd_hist_prev=v.get("macd_hist_prev")
-  macd_slope_dir="WAIT"
-  if macd_hist is not None and macd_hist_prev is not None:
-   if macd_hist>macd_hist_prev: macd_slope_dir="CALL"
-   elif macd_hist<macd_hist_prev: macd_slope_dir="PUT"
 
   # REAL-TIME CANDLE MOMENTUM: gives the newest 2-3 candles limited early influence
   # without changing the 10-indicator / 100-point model.
@@ -356,6 +356,32 @@ class SignalEngine:
   momentum_bonus=0.0
   if leader_direction in ("CALL","PUT") and momentum_side==leader_direction and momentum_same_count>=2:
    momentum_bonus=min(4.0, 1.5 + momentum_same_count*0.8)
+
+  # MAJOR REVERSAL SAFETY:
+  # Do not let the old weighted leader reach a CALL/PUT release when the
+  # newest Alligator + MACD + CCI evidence has already turned the other way.
+  # This is a block, not a fixed delay.
+  major_reversal_block=False
+  if leader_direction in ("CALL","PUT"):
+   opposite="PUT" if leader_direction=="CALL" else "CALL"
+   core_turns=0
+   if alligator_slope_dir==opposite: core_turns+=1
+   if macd_slope_dir==opposite: core_turns+=1
+   if cci_direction==opposite: core_turns+=1
+
+   cci_sr_reversal=(
+    (leader_direction=="CALL" and cci is not None and cci>=100 and cci_prev is not None and cci<cci_prev and near_resistance)
+    or
+    (leader_direction=="PUT" and cci is not None and cci<=-100 and cci_prev is not None and cci>cci_prev and near_support)
+   )
+   if core_turns>=2 and (cci_reversal_conflict or market_structure==opposite or cci_sr_reversal):
+    major_reversal_block=True
+   elif core_turns>=3:
+    major_reversal_block=True
+   elif hard_reversal_tripwire:
+    major_reversal_block=True
+
+  # Recompute the margin AFTER Alligator conflict/strength penalties are applied.
   adjusted_margin=weighted_margin+confirmation_bonus+momentum_bonus-conflict_penalty
   strong_margin=adjusted_margin>=13
   trend_votes=sum(1 for x in (alligator_dir,ema_dir,super_dir) if x==leader_direction)
@@ -408,6 +434,7 @@ class SignalEngine:
    and not cci_hard_conflict
    and not cci_reversal_conflict
    and not hard_reversal_tripwire
+   and not major_reversal_block
   )
 
   full_ok=(
@@ -415,7 +442,13 @@ class SignalEngine:
    and strong_margin and trend_aligned
    and not cci_hard_conflict
    and not cci_reversal_conflict
+   and not major_reversal_block
   )
+
+  # A blocked reversal must never be displayed as a high-confidence stale signal.
+  if major_reversal_block:
+   confidence=0.0
+   directional_votes=0
 
   if full_ok or early_ok:
    signal=leader_direction
@@ -430,6 +463,7 @@ class SignalEngine:
    signal="WAIT"
    if not trend_aligned: reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); primary trend is not aligned enough"
    elif leader_direction=="WAIT": reason="WAIT: indicators are evenly split"
+   elif major_reversal_block: reason=f"WAIT: reversal protection blocked stale {leader_direction}; Alligator/MACD/CCI momentum has turned {opposite}"
    elif cci_hard_conflict: reason=f"WAIT: CCI is clearly {cci_direction} while the candidate is {leader_direction}; conflicting direction blocked"
    elif adjusted_margin < 6.0: reason=f"WAIT: {directional_votes}/10 agree ({confidence:.0f}%); directional margin {adjusted_margin:.1f} is too narrow"
    elif raw_candidate==self.developing_side and self.developing_strength>0:
@@ -451,7 +485,7 @@ class SignalEngine:
    "confirmation_bonus":round(confirmation_bonus,1),"market_structure":market_structure,"market_structure_pattern":v.get("market_structure_pattern","INSUFFICIENT"),"market_structure_break":market_structure_break,"candle_confirmation":candle_confirmation,"support":support,"resistance":resistance,"near_support":near_support,"near_resistance":near_resistance,"support_break":support_break,"resistance_break":resistance_break,"sr_confirmation":sr_confirmation,"candle_direction":candle_direction,"candle_body_ratio":round(candle_body_ratio,3),"candle_confirmed":candle_confirmed,
    "momentum_bonus":round(momentum_bonus,1),"momentum_side":momentum_side,"momentum_same_count":momentum_same_count,
    "conflict_penalty":round(conflict_penalty,1),
-   "reversal_conflict":reversal_conflict,"reversal_safety":reversal_safety,"reversal_direction":reversal_direction,
+   "reversal_conflict":reversal_conflict,"reversal_safety":reversal_safety,"reversal_direction":reversal_direction,"major_reversal_block":major_reversal_block,
    "reversal_evidence":reversal_evidence,"cci_direction":cci_direction,"cci_clear":cci_clear,"cci_hard_conflict":cci_hard_conflict,
    "cci_reversal_side":cci_reversal_side,"cci_extreme":cci_extreme,"cci_turning":cci_turning,
    "cci_reversal_zone":cci_reversal_zone,"cci_reversal_conflict":cci_reversal_conflict,"hard_reversal_tripwire":hard_reversal_tripwire,
