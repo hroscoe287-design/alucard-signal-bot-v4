@@ -235,6 +235,38 @@ class SignalEngine:
   if cci_hard_conflict:
    conflict_penalty+=7.0
 
+  # CCI EXTREME REVERSAL WATCH:
+  # Treat +100/-100 as the first overbought/oversold zone and +150/-150
+  # as a stronger extreme. A reversal is only armed when CCI turns back
+  # from the extreme; merely touching the level does not flip direction.
+  # This is especially important near an automatically detected price
+  # resistance/support level, where a continuation vote can otherwise be late.
+  cci_reversal_side="WAIT"
+  cci_extreme=False
+  cci_turning=False
+  if cci is not None and cci_prev is not None:
+   cci_extreme=abs(cci)>=100
+   cci_turning=(cci>=100 and cci<cci_prev) or (cci<=-100 and cci>cci_prev)
+   if cci>=150 and cci<cci_prev: cci_reversal_side="PUT"
+   elif cci<=-150 and cci>cci_prev: cci_reversal_side="CALL"
+   elif cci>=100 and cci<cci_prev: cci_reversal_side="PUT"
+   elif cci<=-100 and cci>cci_prev: cci_reversal_side="CALL"
+
+  cci_reversal_zone = (
+   (cci_reversal_side=="PUT" and near_resistance)
+   or (cci_reversal_side=="CALL" and near_support)
+  )
+  # A CCI extreme turning against the current candidate is strong reversal
+  # evidence. Near S/R it becomes a hard safety block; it does not create a
+  # new vote or impose a fixed candle delay.
+  cci_reversal_conflict=(
+   leader_direction in ("CALL","PUT")
+   and cci_reversal_side in ("CALL","PUT")
+   and cci_reversal_side!=leader_direction
+  )
+  if cci_reversal_conflict:
+   conflict_penalty += 6.0 if cci_reversal_zone else 4.0
+
   # MACD REVERSAL SLOPE: histogram direction can change before the MACD vote
   # crosses zero. It is used only as a reversal-safety input, never as a new vote.
   macd_hist=v.get("macd_hist")
@@ -264,6 +296,7 @@ class SignalEngine:
    if osma_dir==opposite: reversal_evidence.append("OSMA")
    if macd_slope_dir==opposite: reversal_evidence.append("MACD_Slope")
    if cci_direction==opposite and cci is not None: reversal_evidence.append("CCI")
+   if cci_reversal_conflict and cci_reversal_side==opposite: reversal_evidence.append("CCI_Extreme_Reversal")
    if candle_confirmed and candle_direction==opposite: reversal_evidence.append("Candle")
    if market_structure==opposite: reversal_evidence.append("Structure")
    if market_structure_break==opposite: reversal_evidence.append("StructureBreak")
@@ -274,7 +307,7 @@ class SignalEngine:
 
    strong_reversal_sources=sum(
     1 for x in reversal_evidence
-    if x in ("Alligator","DMI","CCI","OSMA","MACD_Slope","Structure","StructureBreak")
+    if x in ("Alligator","DMI","CCI","CCI_Extreme_Reversal","OSMA","MACD_Slope","Structure","StructureBreak")
    )
    # REVERSAL SAFETY: prevent a stale high-confidence direction from being
    # released when the newest price-action/trend evidence has already turned.
@@ -343,12 +376,14 @@ class SignalEngine:
    and trend_aligned and adjusted_margin>=6.0
    and not reversal_conflict
    and not cci_hard_conflict
+   and not cci_reversal_conflict
   )
 
   full_ok=(
    leader_direction!="WAIT" and confidence>=effective_min_confidence
    and strong_margin and trend_aligned
    and not cci_hard_conflict
+   and not cci_reversal_conflict
   )
 
   if full_ok or early_ok:
@@ -385,7 +420,10 @@ class SignalEngine:
    "momentum_bonus":round(momentum_bonus,1),"momentum_side":momentum_side,"momentum_same_count":momentum_same_count,
    "conflict_penalty":round(conflict_penalty,1),
    "reversal_conflict":reversal_conflict,"reversal_safety":reversal_safety,"reversal_direction":reversal_direction,
-   "reversal_evidence":reversal_evidence,"cci_direction":cci_direction,"cci_clear":cci_clear,"cci_hard_conflict":cci_hard_conflict,"effective_min_confidence":effective_min_confidence,
+   "reversal_evidence":reversal_evidence,"cci_direction":cci_direction,"cci_clear":cci_clear,"cci_hard_conflict":cci_hard_conflict,
+   "cci_reversal_side":cci_reversal_side,"cci_extreme":cci_extreme,"cci_turning":cci_turning,
+   "cci_reversal_zone":cci_reversal_zone,"cci_reversal_conflict":cci_reversal_conflict,
+   "effective_min_confidence":effective_min_confidence,
    "developing_signal":self.developing_side,"developing_strength":round(self.developing_strength,2),
    "developing_age":round(developing_age,1),"early_confirmation":early_ok,
    "votes":votes,"reason":reason,"timestamp":datetime.now(timezone.utc).isoformat()
