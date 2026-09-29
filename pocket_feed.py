@@ -216,12 +216,15 @@ class PocketOptionFeed:
             if text_msg == "2":
                 await ws.send("3")
                 continue
-            if text_msg.startswith("41"):
-                raise RuntimeError(f"Pocket Option authorization rejected: {text_msg[:200]}")
+            if text_msg.startswith("41") or text_msg.startswith("44"):
+                raise RuntimeError(f"Pocket Option authorization rejected/error: {text_msg[:400]}")
 
             decoded = self._decode_socket_packet(text_msg)
             if decoded is None:
+                if text_msg:
+                    log.warning("Pocket Option auth-stage message: %s", text_msg[:500])
                 continue
+            log.info("Pocket Option auth-stage event: %s", decoded[0])
             event, body, count = decoded
 
             if count:
