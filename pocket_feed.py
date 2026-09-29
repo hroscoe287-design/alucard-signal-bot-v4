@@ -32,11 +32,17 @@ class PocketOptionFeed:
         self._update_stream_samples = 0
         self._update_stream_rejected_samples = 0
         self._update_assets_samples = 0
+        self._region_index = 0
 
     def _url(self):
         raw = self.url.strip()
         if not raw:
             raw = "wss://api-us-south.po.market/socket.io/?EIO=4&transport=websocket"
+        parsed = urlparse(raw)
+        hosts = ["api-eu.po.market", "api-msk.po.market", "api-spb.po.market", "api-us-north.po.market", "api-us-south.po.market"]
+        if parsed.netloc in hosts:
+            host = hosts[self._region_index % len(hosts)]
+            raw = urlunparse((parsed.scheme or "wss", host, parsed.path or "/socket.io/", "", parsed.query, ""))
         p = urlparse(raw)
         q = parse_qs(p.query)
         q["EIO"] = ["4"]
@@ -58,6 +64,11 @@ class PocketOptionFeed:
             data = json.loads(raw)
         except Exception:
             data = {"session": raw}
+        if isinstance(data, dict):
+            data = dict(data)
+            data.setdefault("platform", 2)
+            data.setdefault("isFastHistory", True)
+            data.setdefault("isOptimized", True)
         if isinstance(data, list):
             if len(data) >= 2 and data[0] == "auth":
                 return data[1]
@@ -544,7 +555,8 @@ class PocketOptionFeed:
                 self.connected = False
                 self.authenticated = False
                 self.last_error = repr(exc)
-                log.warning("feed disconnected: %s (%s)", exc, type(exc).__name__)
+                self._region_index = (self._region_index + 1) % 5
+                log.warning("feed disconnected: %s (%s); rotating websocket region", exc, type(exc).__name__)
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 30)
             finally:
