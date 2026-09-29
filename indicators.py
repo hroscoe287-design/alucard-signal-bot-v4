@@ -90,6 +90,24 @@ def alligator(df):
 def fractal(df,span=2):
  return df.high.rolling(2*span+1,center=True).max().eq(df.high),df.low.rolling(2*span+1,center=True).min().eq(df.low)
 
+
+
+def fractal_chaos_bands(df, span=2):
+ # Fractal Chaos Bands use the latest confirmed fractal high/low as
+ # adaptive upper/lower structure. No future candle is used in live logic.
+ highs, lows = fractal(df, span)
+ upper=pd.Series(np.nan,index=df.index,dtype=float)
+ lower=pd.Series(np.nan,index=df.index,dtype=float)
+ last_high=np.nan; last_low=np.nan
+ for i in range(len(df)):
+  confirmed_i=i-span
+  if confirmed_i>=0:
+   if bool(highs.iloc[confirmed_i]): last_high=float(df.high.iloc[confirmed_i])
+   if bool(lows.iloc[confirmed_i]): last_low=float(df.low.iloc[confirmed_i])
+  upper.iloc[i]=last_high; lower.iloc[i]=last_low
+ mid=(upper+lower)/2.0
+ return upper,lower,mid
+
 def bollinger(s,n=20,stds=2.0):
  mid=s.rolling(n).mean()
  dev=s.rolling(n).std(ddof=0)
@@ -181,6 +199,7 @@ def calculate(candles):
  atr_series=atr(df)
  atr_base=atr_series.rolling(50,min_periods=14).mean()
  st,st_dir=supertrend(df,10,3.0)
+ fcb_upper,fcb_lower,fcb_mid=fractal_chaos_bands(df,2)
  ut_fast=ut_bot_direction(df,1.2,10)
  ut_slow=ut_bot_direction(df,1.5,20)
  stoch_k,stoch_d=stochastic(df,14,3,3)
@@ -258,6 +277,10 @@ def calculate(candles):
   "bb_mid":last(bbmid),"bb_upper":last(bbup),"bb_lower":last(bblow),
   "bb_width":last(bbwidth),"bb_pct":last(bbpct),
   "supertrend":last(st),"supertrend_direction":int(st_dir.iloc[-1]),
+  "fcb_upper":last(fcb_upper),"fcb_lower":last(fcb_lower),"fcb_mid":last(fcb_mid),
+  "fcb_upper_prev":float(fcb_upper.iloc[-2]) if len(fcb_upper)>1 and pd.notna(fcb_upper.iloc[-2]) else None,
+  "fcb_lower_prev":float(fcb_lower.iloc[-2]) if len(fcb_lower)>1 and pd.notna(fcb_lower.iloc[-2]) else None,
+  "fcb_mid_prev":float(fcb_mid.iloc[-2]) if len(fcb_mid)>1 and pd.notna(fcb_mid.iloc[-2]) else None,
   "ut_fast_direction":int(ut_fast.iloc[-1]),"ut_slow_direction":int(ut_slow.iloc[-1]),
   "ut_fast_prev":int(ut_fast.iloc[-2]) if len(ut_fast)>1 else 0,"ut_slow_prev":int(ut_slow.iloc[-2]) if len(ut_slow)>1 else 0,
   "stoch_k":last(stoch_k),"stoch_d":last(stoch_d),
