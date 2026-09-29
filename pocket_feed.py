@@ -81,14 +81,27 @@ class PocketOptionFeed:
         payload.setdefault("isOptimized", True)
         return payload
 
-    def auth_packet(self):
-        # Always rebuild the auth frame from the captured session payload.
-        # This preserves session/uid/isDemo while adding the current protocol
-        # fields instead of replaying a stale browser frame verbatim.
+    def _auth_packets(self):
+        """Return auth frames in safest-to-most-normalized order."""
+        packets = []
+        raw = self.auth_json.strip()
+        if raw.startswith("42"):
+            try:
+                packet = json.loads(raw[2:])
+                if isinstance(packet, list) and len(packet) >= 2 and packet[0] == "auth":
+                    packets.append(raw)
+            except Exception:
+                pass
         payload = self._auth_payload()
-        if payload is None:
-            return None
-        return "42" + json.dumps(["auth", payload], separators=(",", ":"))
+        if payload is not None:
+            rebuilt = "42" + json.dumps(["auth", payload], separators=(",", ":"))
+            if rebuilt not in packets:
+                packets.append(rebuilt)
+        return packets
+
+    def auth_packet(self):
+        packets = self._auth_packets()
+        return packets[0] if packets else None
 
     def _event_packet(self, event, payload):
         return "42" + json.dumps([event, payload], separators=(",", ":"))
@@ -218,10 +231,11 @@ class PocketOptionFeed:
         raise RuntimeError("Socket.IO namespace handshake timed out")
 
     async def _authenticate(self, ws):
-        packet = self.auth_packet()
-        if packet is None:
+        packets = self._auth_packets()
+        if not packets:
             raise RuntimeError("PO_AUTH_JSON is not configured")
-        await ws.send(packet)
+        await ws.send(packets[0])
+        auth_attempt = 0
 
         auth_deadline = time.monotonic() + 45
         while time.monotonic() < auth_deadline:
@@ -256,6 +270,10 @@ class PocketOptionFeed:
                 return
             if event == "updateAssets":
                 log.info("Pocket Option auth-stage assets received; continuing authorization wait")
+                if len(packets) > 1 and auth_attempt == 0:
+                    auth_attempt = 1
+                    await ws.send(packets[1])
+                    log.info("Pocket Option auth retry: normalized session payload")
 
         raise RuntimeError("Pocket Option authorization response not received")
 
