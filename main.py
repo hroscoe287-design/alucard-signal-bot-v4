@@ -8,6 +8,7 @@ from engine import SignalEngine
 from pocket_feed import PocketOptionFeed
 from ai_reviewer import AIReviewer
 from pro_guards import apply_pro_guards
+from backtest import run_backtest
 logging.basicConfig(level=logging.INFO)
 app=FastAPI(title=APP_NAME)
 builder=CandleBuilder(TIMEFRAMES.get(settings.timeframe,60),settings.history_size)
@@ -122,6 +123,9 @@ async def api_state():
  if state["entry_until"] and (state["entry_signal"] != state["signal"].get("signal") or state["signal"].get("signal") not in ("CALL","PUT")):
   state["entry_until"]=0.0; state["entry_signal"]="WAIT"; entry_remaining=0.0
  return {"app":APP_NAME,"asset":state["asset"],"timeframe":state["timeframe"],"payout":settings.payout,"expiry":settings.expiry_minutes,"price":state["price"],"last_tick_age":age,"feed_connected":bool(feed and feed.connected),"candles":builder.snapshot()[-120:],"indicators":state["indicators"],"signal":state["signal"],"ai_review":state.get("ai_review",{}),"entry_remaining":round(entry_remaining,1),"entry_open":entry_remaining>0}
+@app.get("/api/backtest")
+async def api_backtest():
+ return run_backtest(builder.snapshot(),settings.min_confidence,150)
 @app.get("/api/assets")
 async def assets():return {"assets":ASSETS,"timeframes":list(TIMEFRAMES)}
 @app.post("/api/config")
