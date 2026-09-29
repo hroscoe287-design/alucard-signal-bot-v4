@@ -415,7 +415,25 @@ class SignalEngine:
             elif spike_detected and spike_direction == opposite and spike_strength >= 0.45:
                 spike_block = True
 
-        safety_block = core_direction_block or exhaustion_block or spike_block
+        # Lightweight confirmation layer: Supertrend + DMI/ADX are not
+        # additional weighted votes. When trend strength is meaningful, they
+        # veto a candidate only when both independently point the other way.
+        # This adds confirmation without materially slowing signal generation.
+        confirmation_direction_block = False
+        if leader_direction in ("CALL", "PUT"):
+            opposite = "PUT" if leader_direction == "CALL" else "CALL"
+            strong_adx = bool(adx_ready and adx >= 20)
+            super_conflict = super_dir == opposite
+            dmi_conflict = dmi_dir == opposite
+            if strong_adx and super_conflict and dmi_conflict:
+                confirmation_direction_block = True
+
+        safety_block = (
+            core_direction_block
+            or exhaustion_block
+            or spike_block
+            or confirmation_direction_block
+        )
         effective_min_confidence = self.min_confidence
 
         full_ok = (
@@ -438,6 +456,8 @@ class SignalEngine:
             )
         elif spike_block:
             reason = f"WAIT: spike protection blocked {leader_direction}; abnormal momentum is opposite or reversing"
+        elif confirmation_direction_block:
+            reason = f"WAIT: Supertrend + DMI/ADX conflict with {leader_direction}; trend confirmation veto active"
         elif safety_block:
             reason = f"WAIT: reversal protection blocked stale {leader_direction}; Alligator/MACD/CCI evidence turned"
         elif not trend_aligned:
@@ -515,6 +535,7 @@ class SignalEngine:
             "spike_volume_ratio": v.get("spike_volume_ratio"),
             "spike_volume_available": bool(v.get("spike_volume_available", False)),
             "spike_protection": spike_block,
+            "confirmation_direction_block": confirmation_direction_block,
             "reversal_conflict": safety_block,
             "reversal_safety": safety_block,
             "reversal_direction": cci_reversal_side,
