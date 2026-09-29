@@ -76,6 +76,19 @@ class PocketOptionFeed:
         return payload
 
     def auth_packet(self):
+        raw = self.auth_json.strip()
+        if not raw:
+            return None
+
+        # Preserve a complete captured Socket.IO auth frame exactly.
+        if raw.startswith("42") and raw[2:].lstrip().startswith("["):
+            try:
+                packet = json.loads(raw[2:])
+                if isinstance(packet, list) and len(packet) >= 2 and packet[0] == "auth" and isinstance(packet[1], dict):
+                    return raw
+            except Exception:
+                pass
+
         payload = self._auth_payload()
         if payload is None:
             return None
@@ -138,7 +151,7 @@ class PocketOptionFeed:
     async def _keepalive(self, ws):
         while self.running:
             try:
-                await ws.send(self._event_packet("ps", {}))
+                await ws.send('42["ps"]')
                 await asyncio.sleep(15)
             except asyncio.CancelledError:
                 raise
@@ -215,7 +228,7 @@ class PocketOptionFeed:
             raise RuntimeError("PO_AUTH_JSON is not configured")
         await ws.send(packet)
 
-        auth_deadline = time.monotonic() + 15
+        auth_deadline = time.monotonic() + 45
         while time.monotonic() < auth_deadline:
             msg = await asyncio.wait_for(ws.recv(), timeout=max(1, auth_deadline - time.monotonic()))
             if isinstance(msg, bytes):
