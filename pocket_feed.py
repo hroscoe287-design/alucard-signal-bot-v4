@@ -405,21 +405,15 @@ class PocketOptionFeed:
     async def run(self):
         self.running = True
         delay = 2
-        region_urls = [
-            self._url(),
-            "wss://api-eu.po.market/socket.io/?EIO=4&transport=websocket",
-            "wss://api-msk.po.market/socket.io/?EIO=4&transport=websocket",
-            "wss://api-spb.po.market/socket.io/?EIO=4&transport=websocket",
-            "wss://api-us-north.po.market/socket.io/?EIO=4&transport=websocket",
-            "wss://api-us-south.po.market/socket.io/?EIO=4&transport=websocket",
-        ]
-        region_urls = list(dict.fromkeys(region_urls))
-        region_index = 0
+        # Keep the configured Pocket Option region stable. Rapidly rotating
+        # regions can create overlapping sessions and cause the broker to close
+        # a newly authenticated socket before the market subscription starts.
+        # The configured URL is the same endpoint used by the working rollback.
+        url = self._url()
 
         while self.running:
             try:
-                url = region_urls[region_index % len(region_urls)]
-                region_index += 1
+                log.info("connecting to Pocket Option websocket: %s", url)
                 log.info("connecting to Pocket Option websocket: %s", url)
                 async with websockets.connect(
                     url,
