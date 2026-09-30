@@ -302,6 +302,8 @@ async def home():
         scanner_markup = "".join(blocks)
 
 
+    html=HTML
+
     # Server-render the full selectors so the asset/timeframe controls remain
     # visible even if mobile JavaScript is delayed or fails to initialize.
     asset_groups = []
@@ -328,7 +330,6 @@ async def home():
         '<select id="asset"></select><select id="tf"></select><button onclick="applyCfg()">APPLY</button>',
         controls_markup
     )
-    html=HTML
     html=html.replace('<meta name="viewport" content="width=device-width,initial-scale=1">','<meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="5">')
     html=html.replace('<div id="scanner">SCANNING FEED…</div>',f'<div id="scanner">{scanner_markup}</div>')
     html=html.replace('FEED: WAITING',f'FEED: {initial_feed}',1)
