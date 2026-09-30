@@ -278,8 +278,32 @@ async def home():
     initial_conf=f"{float(sig.get('confidence',0) or 0):.0f}%"
     initial_reason=str(sig.get("reason","Waiting for live market data"))
     initial_count=f"00:{max(0,int(rem+0.999)):02d}" if rem>0 else "00:00"
+    # Render scanner candidates server-side too. This prevents the mobile
+    # fallback page from showing a permanent "SCANNING FEED" placeholder when
+    # JavaScript is delayed or unavailable.
+    scanner_markup = "NO HIGH-MARGIN SETUP"
+    if scanner_candidates:
+        blocks = []
+        for i, item in enumerate(scanner_candidates[:5], 1):
+            asset = str(item.get("asset", "—"))
+            signal = str(item.get("signal", "WAIT"))
+            conf = float(item.get("ml_probability", item.get("confidence", 0)) or 0)
+            margin = float(item.get("margin", 0) or 0)
+            psar = str(item.get("psar_signal", "WAIT"))
+            rem = max(0, int(float(item.get("entry_remaining", 0) or 0) + 0.999))
+            blocks.append(
+                f'<div style="margin:8px 0;padding:8px;background:#171923;border-radius:7px">'
+                f'<b>#{i} {asset}</b> • <b>TF: {state["timeframe"]}</b> • '
+                f'<span class="{signal.lower()}">{signal}</span><br>'
+                f'<small>RF: <b>{conf:.0f}%</b> • MARGIN: <b>{margin:.0f}%</b> • '
+                f'PSAR: <b>{psar}</b></small><br>'
+                f'<b>ENTRY: <span>00:{rem:02d}</span></b> • ENTRY OPEN</div>'
+            )
+        scanner_markup = "".join(blocks)
+
     html=HTML
     html=html.replace('<meta name="viewport" content="width=device-width,initial-scale=1">','<meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="5">')
+    html=html.replace('<div id="scanner">SCANNING FEED…</div>',f'<div id="scanner">{scanner_markup}</div>')
     html=html.replace('FEED: WAITING',f'FEED: {initial_feed}',1)
     html=html.replace('AGE: —',f'AGE: {initial_age} • NET —',1)
     html=html.replace('ENGINE: WAITING',f'ENGINE: {initial_engine}',1)
