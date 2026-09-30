@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 import websockets
 
 log = logging.getLogger("alucard.feed")
+# The scanner receives a high-volume multi-asset stream. Keep per-tick INFO logging off so Render free-tier CPU is reserved for the dashboard/engine.\nlog.setLevel(logging.WARNING)
 
 
 class PocketOptionFeed:
