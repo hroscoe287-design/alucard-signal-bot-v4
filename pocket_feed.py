@@ -549,7 +549,7 @@ class PocketOptionFeed:
                             if event != "updateStream":
                                 log.info("Pocket Option event received: %s body_type=%s attachments=%d", event, type(body).__name__, count)
 
-                            if event == "updateHistoryNewFast" and self.on_history:
+                            if event == "updateHistoryNewFast" and (self.on_history or self.on_history_asset):
                                 history = self._extract_history(body)
                                 if history:
                                     if self.on_history_asset:
