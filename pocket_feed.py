@@ -501,9 +501,9 @@ class PocketOptionFeed:
                                     self.last_tick_source = "binary"
                                     self.on_tick(asset, price, ts)
                                     if self._update_stream_samples < 5:
-                                        log.info("Pocket Option binary market tick received: %s %.8f latency_ms=%.1f", asset, price, self.last_tick_latency_ms or 0.0)
+                                        log.debug("Pocket Option binary market tick received: %s %.8f latency_ms=%.1f", asset, price, self.last_tick_latency_ms or 0.0)
                                 else:
-                                    log.info("Pocket Option binary frame received: %d bytes hex=%s", len(msg), msg[:32].hex())
+                                    log.debug("Pocket Option binary frame received: %d bytes hex=%s", len(msg), msg[:32].hex())
                                 continue
 
                             text_msg = str(msg)
@@ -520,7 +520,7 @@ class PocketOptionFeed:
                             decoded = self._decode_socket_packet(text_msg)
                             if decoded is None:
                                 if text_msg:
-                                    log.info("Pocket Option non-event message: %s", text_msg[:180])
+                                    log.debug("Pocket Option non-event message: %s", text_msg[:180])
                                 continue
 
                             event, body, count = decoded
@@ -533,7 +533,7 @@ class PocketOptionFeed:
 
                             if event == "updateAssets" and self._update_assets_samples < 2:
                                 self._update_assets_samples += 1
-                                log.info(
+                                log.debug(
                                     "Pocket Option updateAssets diagnostic %d: %s",
                                     self._update_assets_samples,
                                     self._safe_body_summary(body, 2200),
@@ -541,14 +541,14 @@ class PocketOptionFeed:
 
                             if event == "updateStream" and self._update_stream_samples < 5:
                                 self._update_stream_samples += 1
-                                log.info(
+                                log.debug(
                                     "Pocket Option updateStream sample %d: %s",
                                     self._update_stream_samples,
                                     self._safe_body_summary(body, 2200),
                                 )
 
                             if event != "updateStream":
-                                log.info("Pocket Option event received: %s body_type=%s attachments=%d", event, type(body).__name__, count)
+                                log.debug("Pocket Option event received: %s body_type=%s attachments=%d", event, type(body).__name__, count)
 
                             if event == "updateHistoryNewFast" and (self.on_history or self.on_history_asset):
                                 history = self._extract_history(body)
@@ -573,17 +573,17 @@ class PocketOptionFeed:
                                 self.last_tick_source = event
                                 self.on_tick(asset, price, stamp)
                                 if self._update_stream_samples <= 5:
-                                    log.info("Pocket Option market tick received: %s %.8f latency_ms=%.1f", asset, price, self.last_tick_latency_ms or 0.0)
+                                    log.debug("Pocket Option market tick received: %s %.8f latency_ms=%.1f", asset, price, self.last_tick_latency_ms or 0.0)
                             elif event == "updateStream":
                                 if self._update_stream_rejected_samples < 5:
                                     self._update_stream_rejected_samples += 1
-                                    log.warning(
+                                    log.debug(
                                         "Pocket Option rejected updateStream for %s: %s",
                                         self.asset,
                                         self._safe_body_summary(body, 1800),
                                     )
                             elif event in {"updateHistoryNewFast", "successauth"}:
-                                log.info("Pocket Option market event had no valid price: %s", event)
+                                log.debug("Pocket Option market event had no valid price: %s", event)
                     finally:
                         keepalive_task.cancel()
                         try:
