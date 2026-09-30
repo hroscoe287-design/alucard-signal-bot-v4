@@ -262,4 +262,31 @@ setInterval(updateClock,250);updateClock();init();
 </script></body></html>'''
 @app.get("/",response_class=HTMLResponse)
 async def home():
-    return HTMLResponse(content=HTML, headers={"Cache-Control":"no-store, no-cache, must-revalidate, max-age=0","Pragma":"no-cache","Expires":"0"})
+    # Server-render the current state as a fallback so the dashboard still shows
+    # live data even if a mobile browser delays or fails to execute the inline JS.
+    now=time.time()
+    age=now-state["last_tick"] if state["last_tick"] else None
+    live=bool(feed and feed.connected and age is not None and age<=settings.stale_seconds)
+    sig=state.get("signal",{}) or {}
+    rem=max(0.0,state.get("entry_until",0.0)-now) if state.get("entry_until") else 0.0
+    initial_clock=time.strftime("%H:%M:%S")
+    initial_feed="LIVE" if live else "WAITING"
+    initial_engine="READY" if builder.candles else "WAITING_FOR_FEED"
+    initial_age="—" if age is None else f"{age:.2f}s"
+    initial_price="—" if state.get("price") is None else str(state.get("price"))
+    initial_signal=str(sig.get("signal","WAIT"))
+    initial_conf=f"{float(sig.get('confidence',0) or 0):.0f}%"
+    initial_reason=str(sig.get("reason","Waiting for live market data"))
+    initial_count=f"00:{max(0,int(rem+0.999)):02d}" if rem>0 else "00:00"
+    html=HTML
+    html=html.replace('<meta name="viewport" content="width=device-width,initial-scale=1">','<meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="5">')
+    html=html.replace('FEED: WAITING',f'FEED: {initial_feed}',1)
+    html=html.replace('AGE: —',f'AGE: {initial_age} • NET —',1)
+    html=html.replace('ENGINE: WAITING',f'ENGINE: {initial_engine}',1)
+    html=html.replace('<div id="sig" class="value signal wait">WAIT</div>',f'<div id="sig" class="value signal {initial_signal.lower()}">{initial_signal}</div>')
+    html=html.replace('<div id="count" class="value">—</div>',f'<div id="count" class="value">{initial_count}</div>')
+    html=html.replace('<div id="clock" class="value">--:--:--</div>',f'<div id="clock" class="value">{initial_clock}</div>')
+    html=html.replace('<div id="conf" class="value">0%</div>',f'<div id="conf" class="value">{initial_conf}</div>')
+    html=html.replace('<div id="price" class="value">—</div>',f'<div id="price" class="value">{initial_price}</div>')
+    html=html.replace('<div id="reason" style="margin-top:8px">Waiting for live market data.</div>',f'<div id="reason" style="margin-top:8px">{initial_reason}</div>')
+    return HTMLResponse(content=html, headers={"Cache-Control":"no-store, no-cache, must-revalidate, max-age=0","Pragma":"no-cache","Expires":"0"})
