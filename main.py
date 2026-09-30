@@ -79,7 +79,7 @@ def refresh_scanner():
         trend_aligned=bool(core_agreement>=2 and alligator_vote==direction and not reversal_safety)
 
         # Independent Random Forest confirmation. It is research-only and never executes trades.
-        ml=ml_scan(b.snapshot(),horizon=1,min_probability=0.60)
+        ml=ml_scan(b.snapshot(),horizon=1,min_probability=0.60,cache_key=asset)
         ml_direction=ml.get("signal","WAIT")
         ml_probability=float(ml.get("probability",0) or 0)
         engine_direction=sig.get("signal","WAIT")
