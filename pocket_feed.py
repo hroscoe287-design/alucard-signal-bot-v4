@@ -13,13 +13,16 @@ log = logging.getLogger("alucard.feed")
 class PocketOptionFeed:
     """Signal-only Pocket Option market feed."""
 
-    def __init__(self, url, auth_json, on_tick, on_history=None, asset="EURUSD_otc", period=60):
+    def __init__(self, url, auth_json, on_tick, on_history=None, asset="EURUSD_otc", period=60, assets=None, on_history_asset=None):
         self.url = url
         self.auth_json = auth_json or ""
         self.on_tick = on_tick
         self.on_history = on_history
         self.asset = asset
+        self.assets = set(str(x).lstrip("#") for x in (assets or [asset]))
+        self.assets.add(str(asset).lstrip("#"))
         self.period = int(period)
+        self.on_history_asset = on_history_asset
         self.running = False
         self.connected = False
         self.authenticated = False
@@ -120,13 +123,14 @@ class PocketOptionFeed:
         return str(asset).lstrip("#") if asset is not None else asset
 
     async def _subscribe(self, ws):
-        wire_asset = self._wire_asset(self.asset)
-        await ws.send(self._event_packet("subscribeSymbol", {"asset": wire_asset}))
-        await ws.send(self._event_packet("changeSymbol", {
-            "asset": wire_asset,
-            "period": self.period,
-        }))
-        await ws.send(self._event_packet("subfor", {"asset": wire_asset}))
+        for asset in sorted(self.assets):
+            wire_asset = self._wire_asset(asset)
+            await ws.send(self._event_packet("subscribeSymbol", {"asset": wire_asset}))
+            await ws.send(self._event_packet("changeSymbol", {
+                "asset": wire_asset,
+                "period": self.period,
+            }))
+            await ws.send(self._event_packet("subfor", {"asset": wire_asset}))
 
     async def change_subscription(self, asset, period):
         """Switch the live Pocket Option subscription without restarting the service."""
@@ -291,12 +295,18 @@ class PocketOptionFeed:
             return 0.01, 1_000_000.0
         return 0.00001, 10.0
 
-    def _valid_price(self, value):
+    def _valid_price(self, value, asset=None):
         try:
             value = float(value)
         except (TypeError, ValueError):
             return False
-        low, high = self._price_bounds()
+        old_asset = self.asset
+        try:
+            if asset is not None:
+                self.asset = str(asset).lstrip("#")
+            low, high = self._price_bounds()
+        finally:
+            self.asset = old_asset
         return low <= value <= high
 
     def _extract_binary_tick(self, data):
@@ -318,7 +328,7 @@ class PocketOptionFeed:
                         price = float(item[2])
                     except (TypeError, ValueError):
                         continue
-                    if self._valid_price(price) and (asset == self.asset or not asset):
+                    if self._valid_price(price, asset) and (asset in self.assets or not asset):
                         if stamp > 10_000_000_000:
                             stamp /= 1000.0
                         return self._display_asset(asset) or self.asset, price, stamp
@@ -330,7 +340,7 @@ class PocketOptionFeed:
 
         try:
             values = struct.unpack("<IdIfffff", raw[:36])
-            if self._valid_price(values[1]):
+            if self._valid_price(values[1], self.asset):
                 stamp = float(values[2])
                 if stamp > 10_000_000_000:
                     stamp /= 1000.0
@@ -343,7 +353,7 @@ class PocketOptionFeed:
                 values = struct.unpack("<IdIfffff", raw[offset:offset + 36])
             except struct.error:
                 continue
-            if not self._valid_price(values[1]):
+            if not self._valid_price(values[1], self.asset):
                 continue
             stamp = float(values[2])
             if stamp <= 0:
@@ -378,7 +388,7 @@ class PocketOptionFeed:
                 continue
             if ts > 10_000_000_000:
                 ts /= 1000.0
-            if asset == self.asset and min(o, c, h, l) > 0 and h >= max(o, c) and l <= min(o, c):
+            if asset in self.assets and self._valid_price(o, asset) and self._valid_price(h, asset) and self._valid_price(l, asset) and self._valid_price(c, asset) and h >= max(o, c) and l <= min(o, c):
                 out.append({"timestamp": ts, "open": o, "close": c, "high": h, "low": l})
         return out
 
@@ -412,12 +422,12 @@ class PocketOptionFeed:
                     candidates.append(parsed)
 
         walk(body)
-        preferred = [x for x in candidates if x[0] in (self.asset, None)]
+        preferred = [x for x in candidates if x[0] in self.assets or x[0] is None]
         if event == "updateStream" and preferred:
             asset, price, ts = preferred[0]
             return asset or self.asset, price, ts
         for asset, price, ts in preferred:
-            if asset == self.asset:
+            if asset in self.assets:
                 return asset, price, ts
         return None
 
@@ -542,8 +552,12 @@ class PocketOptionFeed:
                             if event == "updateHistoryNewFast" and self.on_history:
                                 history = self._extract_history(body)
                                 if history:
-                                    self.on_history(history)
-                                    log.info("Pocket Option historical candles loaded: %d", len(history))
+                                    if self.on_history_asset:
+                                        history_asset = self._display_asset(body.get("asset") or body.get("symbol") or self.asset) if isinstance(body, dict) else self.asset
+                                        self.on_history_asset(history_asset, history)
+                                    elif self.on_history:
+                                        self.on_history(history)
+                                    log.info("Pocket Option historical candles loaded: %d for %s", len(history), self._display_asset(body.get("asset") or body.get("symbol") or self.asset) if isinstance(body, dict) else self.asset)
 
                             parsed = self._extract_event(event, body)
                             if parsed:
