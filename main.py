@@ -204,7 +204,6 @@ async def config(request:Request):
  state["entry_until"]=0.0
  state["entry_signal"]="WAIT"
  state["signal"]={"signal":"WAIT","confidence":0,"reason":"Loading selected market data","votes":[]}
- state["ai_review"]={"enabled":False,"decision":"NO_REVIEW","reason":"AI confirmation not configured"}
  if feed:
   try:
    await feed.change_subscription(new_asset,TIMEFRAMES[new_tf])
