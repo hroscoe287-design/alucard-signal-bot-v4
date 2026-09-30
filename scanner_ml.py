@@ -1,3 +1,5 @@
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
@@ -128,7 +130,9 @@ def scan(candles, horizon=1, min_probability=0.90, cache_key=""):
                 "reason": "Insufficient directional examples"}
 
     latest_completed = str(len(df) - 1)
-    cache_id = (cache_key or "default", horizon, latest_completed, len(data))
+    # Reuse each asset model across candles; retraining the RF on every new
+    # candle across multiple assets is what was exhausting the free instance.
+    cache_id = (cache_key or "default", horizon, "rolling", len(data))
     cached = _MODEL_CACHE.get(cache_id)
 
     if cached:
@@ -139,7 +143,7 @@ def scan(candles, horizon=1, min_probability=0.90, cache_key=""):
         valid_df = data.iloc[split:]
 
         model = RandomForestClassifier(
-            n_estimators=100,
+            n_estimators=50,
             random_state=42,
             n_jobs=1
         )
