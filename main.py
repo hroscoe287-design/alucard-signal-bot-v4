@@ -301,6 +301,33 @@ async def home():
             )
         scanner_markup = "".join(blocks)
 
+
+    # Server-render the full selectors so the asset/timeframe controls remain
+    # visible even if mobile JavaScript is delayed or fails to initialize.
+    asset_groups = []
+    for group, items in ASSETS.items():
+        opts = []
+        for item in items:
+            selected = ' selected' if item == state["asset"] else ''
+            opts.append(f'<option value="{item}"{selected}>{item}</option>')
+        asset_groups.append(
+            f'<optgroup label="{group}">{"".join(opts)}</optgroup>'
+        )
+    tf_opts = []
+    for tf_name in TIMEFRAMES:
+        selected = ' selected' if tf_name == state["timeframe"] else ''
+        tf_opts.append(f'<option value="{tf_name}"{selected}>{tf_name}</option>')
+    controls_markup = (
+        f'<select id="asset" aria-label="Asset" style="min-width:190px">'
+        f'{"".join(asset_groups)}</select>'
+        f'<select id="tf" aria-label="Timeframe" style="min-width:90px">'
+        f'{"".join(tf_opts)}</select>'
+        f'<button onclick="applyCfg()">APPLY</button>'
+    )
+    html=html.replace(
+        '<select id="asset"></select><select id="tf"></select><button onclick="applyCfg()">APPLY</button>',
+        controls_markup
+    )
     html=HTML
     html=html.replace('<meta name="viewport" content="width=device-width,initial-scale=1">','<meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="5">')
     html=html.replace('<div id="scanner">SCANNING FEED…</div>',f'<div id="scanner">{scanner_markup}</div>')
