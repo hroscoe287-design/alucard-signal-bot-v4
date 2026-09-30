@@ -139,7 +139,7 @@ def scan(candles, horizon=1, min_probability=0.90, cache_key=""):
         valid_df = data.iloc[split:]
 
         model = RandomForestClassifier(
-            n_estimators=400,
+            n_estimators=100,
             random_state=42,
             n_jobs=1
         )
