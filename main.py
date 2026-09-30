@@ -54,25 +54,60 @@ def refresh_scanner():
     ranked=[]
     tf=TIMEFRAMES.get(state["timeframe"],60)
     now=time.time()
+    # Scanner-only quality gate: keep the main trading engine unchanged, but
+    # allow the scanner to surface strong developing setups instead of waiting
+    # for the full 78% probability gate used by the main signal box.
+    scanner_probability_threshold=68.0
+    scanner_margin_threshold=6.0
     for asset,b in list(scanner_builders.items()):
-        if len(b.candles)<30:
+        if len(b.candles)<35:
             continue
         result=calculate(b.snapshot())
         eng=scanner_engines.setdefault(asset,SignalEngine(settings.min_confidence))
         sig=eng.evaluate(result)
         age=now-scanner_ticks.get(asset,0) if scanner_ticks.get(asset) else 9999
-        direction=sig.get("signal","WAIT")
+        call_score=float(sig.get("call_score",0) or 0)
+        put_score=float(sig.get("put_score",0) or 0)
+        direction="CALL" if call_score>put_score else "PUT" if put_score>call_score else "WAIT"
         margin=float(sig.get("adjusted_margin",0) or 0)
-        confidence=float(sig.get("confidence",0) or 0)
-        if age<=settings.stale_seconds and direction in ("CALL","PUT") and 90 <= margin <= 120:
+        setup_probability=float(sig.get("setup_probability",0) or 0)
+        core_agreement=int(sig.get("core_agreement",0) or 0)
+        trend_aligned=bool(sig.get("trend_aligned",False))
+        reversal_safety=bool(sig.get("reversal_safety",False))
+        if (
+            age<=settings.stale_seconds
+            and direction in ("CALL","PUT")
+            and margin>=scanner_margin_threshold
+            and setup_probability>=scanner_probability_threshold
+            and core_agreement>=2
+            and trend_aligned
+            and not reversal_safety
+        ):
             candle_ts=b.candles[-1].ts
-            until=_scanner_entry_window(asset,direction,confidence,candle_ts,tf)
+            until=_scanner_entry_window(asset,direction,setup_probability,candle_ts,tf)
             remaining=max(0.0,until-now)
             if remaining>0:
-                ranked.append({"asset":asset,"timeframe":state["timeframe"],"signal":direction,"margin":round(margin,1),"confidence":round(confidence,1),"setup_probability":round(float(sig.get("setup_probability",0) or 0),1),"core_trend":direction,"core_agreement":sig.get("core_agreement",0),"age":round(age,2),"entry_remaining":round(remaining,1),"entry_open":True,"reason":sig.get("reason","")})
+                ranked.append({
+                    "asset":asset,
+                    "timeframe":state["timeframe"],
+                    "signal":direction,
+                    "margin":round(margin,1),
+                    "confidence":round(setup_probability,1),
+                    "setup_probability":round(setup_probability,1),
+                    "core_trend":direction,
+                    "core_agreement":core_agreement,
+                    "age":round(age,2),
+                    "entry_remaining":round(remaining,1),
+                    "entry_open":True,
+                    "reason":sig.get("reason","Developing high-quality setup"),
+                    "main_engine_confirmed":sig.get("signal") in ("CALL","PUT")
+                })
         else:
             scanner_entry.pop(asset,None)
-    ranked.sort(key=lambda x:(105 <= x["margin"] <= 115,x["margin"],x["setup_probability"],x["confidence"]),reverse=True)
+    ranked.sort(
+        key=lambda x:(x["main_engine_confirmed"],x["setup_probability"],x["margin"],x["core_agreement"]),
+        reverse=True
+    )
     scanner_candidates=ranked[:10]
     return scanner_candidates
 
@@ -173,7 +208,7 @@ async def health():
  return {"service":APP_NAME,"feed":"LIVE" if live else "WAITING","engine":"READY" if builder.candles else "WAITING_FOR_FEED","last_tick_age":age,"feed_tick_latency_ms":feed.last_tick_latency_ms if feed else None,"feed_tick_source":feed.last_tick_source if feed else "","auth_configured":bool(settings.auth_json),"error":feed.last_error if feed else ""}
 @app.get("/api/scanner")
 async def api_scanner():
- return {"threshold":90,"max_margin":120,"priority_band":[105,115],"candidates":scanner_candidates}
+ return {"threshold":68,"max_margin":120,"priority_band":[90,115],"candidates":scanner_candidates}
 
 @app.get("/api/state")
 async def api_state():
@@ -181,7 +216,7 @@ async def api_state():
  entry_remaining=max(0.0,state["entry_until"]-time.time()) if state["entry_until"] else 0.0
  if state["entry_until"] and (state["entry_signal"] != state["signal"].get("signal") or state["signal"].get("signal") not in ("CALL","PUT")):
   state["entry_until"]=0.0; state["entry_signal"]="WAIT"; entry_remaining=0.0
- return {"app":APP_NAME,"asset":state["asset"],"timeframe":state["timeframe"],"payout":settings.payout,"expiry":settings.expiry_minutes,"price":state["price"],"last_tick_age":age,"feed_tick_latency_ms":feed.last_tick_latency_ms if feed else None,"feed_tick_source":feed.last_tick_source if feed else "","feed_connected":bool(feed and feed.connected),"candles":builder.snapshot()[-120:],"indicators":state["indicators"],"signal":state["signal"],"scanner":{"threshold":90,"max_margin":120,"priority_band":[105,115],"candidates":scanner_candidates},"entry_remaining":round(entry_remaining,1),"entry_open":entry_remaining>0}
+ return {"app":APP_NAME,"asset":state["asset"],"timeframe":state["timeframe"],"payout":settings.payout,"expiry":settings.expiry_minutes,"price":state["price"],"last_tick_age":age,"feed_tick_latency_ms":feed.last_tick_latency_ms if feed else None,"feed_tick_source":feed.last_tick_source if feed else "","feed_connected":bool(feed and feed.connected),"candles":builder.snapshot()[-120:],"indicators":state["indicators"],"signal":state["signal"],"scanner":{"threshold":68,"max_margin":120,"priority_band":[90,115],"candidates":scanner_candidates},"entry_remaining":round(entry_remaining,1),"entry_open":entry_remaining>0}
 @app.get("/api/backtest")
 async def api_backtest():
  return run_backtest(builder.snapshot(),settings.min_confidence,150)
@@ -213,7 +248,7 @@ async def config(request:Request):
  return {"ok":True,"asset":new_asset,"timeframe":new_tf,"changed_asset":changed_asset,"changed_timeframe":changed_tf}
 HTML='''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>ALUCARD V4</title><style>
 *{box-sizing:border-box}body{margin:0;background:#08090d;color:#e9e9ee;font-family:system-ui,sans-serif}header{padding:18px 22px;border-bottom:1px solid #262833;background:#0d0e14}h1{margin:0;font-size:22px;letter-spacing:2px}.wrap{max-width:1200px;margin:auto;padding:18px}small,.label,.foot{color:#858b9b}.tabs,.controls{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.tab,select,button,.status{background:#151823;color:#eee;border:1px solid #343846;border-radius:8px;padding:9px 12px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.card{background:#11131b;border:1px solid #252834;border-radius:12px;padding:15px;margin-top:12px}.label{font-size:11px;text-transform:uppercase}.value{font-size:23px;margin-top:7px;font-weight:700}.signal{font-size:32px;letter-spacing:2px}.call{color:#56e39f}.put{color:#ff6577}.wait{color:#f1c75b}.chart{height:280px;display:flex;align-items:flex-end;gap:3px;overflow:hidden}.bar{width:7px;min-height:4px}.up{background:#56e39f}.down{background:#ff6577}.matrix{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.matrix div{padding:10px;background:#171923;border-radius:7px;font-size:12px}.foot{font-size:12px;margin-top:18px}@media(max-width:800px){.grid{grid-template-columns:1fr 1fr}.matrix{grid-template-columns:1fr 1fr}}@media(max-width:500px){.value{font-size:18px}.signal{font-size:27px}}
-</style></head><body><header><div class="wrap"><h1>☠ ALUCARD SIGNAL BOT V4.0</h1><small>GOTHIC MARKET INTELLIGENCE • LIVE SIGNAL ENGINE</small></div></header><main class="wrap"><div class="tabs"><div class="tab">Signals</div><div class="tab">Trades</div><div class="tab">Performance</div><div class="tab">Settings</div></div><div class="controls"><select id="asset"></select><select id="tf"></select><button onclick="applyCfg()">APPLY</button><span id="feed" class="status">FEED: WAITING</span><span id="feedAge" class="status">AGE: —</span><span id="eng" class="status">ENGINE: WAITING</span></div><div class="grid"><div class="card"><div class="label">Signal</div><div id="sig" class="value signal wait">WAIT</div></div><div class="card"><div class="label">Entry Window</div><div id="count" class="value">—</div><small id="entryStatus">WAITING FOR SIGNAL</small></div><div class="card"><div class="label">LIVE CLOCK</div><div id="clock" class="value">--:--:--</div><small>LOCAL TIME • RUNNING</small></div><div class="card"><div class="label">Confidence</div><div id="conf" class="value">0%</div></div><div class="card"><div class="label">Asset</div><div id="as" class="value">EURUSD_otc</div></div><div class="card"><div class="label">Price</div><div id="price" class="value">—</div></div></div><div class="card"><div class="label">Market candles</div><div id="chart" class="chart"></div></div><div class="card"><div class="label">Indicator matrix</div><div id="matrix" class="matrix"></div></div><div class="card"><div class="label">Engine reason</div><div id="reason" style="margin-top:8px">Waiting for live market data.</div></div><div class="card"><div class="label">HIGH-MARGIN SETUPS — LIVE</div><div id="scanner">SCANNING FEED…</div><small>90–120% margin • 105–115% priority</small></div><div class="foot">Signal-only architecture. No order execution is enabled. Entry window is dynamic and closes early if confirmation is lost.</div></main><script>
+</style></head><body><header><div class="wrap"><h1>☠ ALUCARD SIGNAL BOT V4.0</h1><small>GOTHIC MARKET INTELLIGENCE • LIVE SIGNAL ENGINE</small></div></header><main class="wrap"><div class="tabs"><div class="tab">Signals</div><div class="tab">Trades</div><div class="tab">Performance</div><div class="tab">Settings</div></div><div class="controls"><select id="asset"></select><select id="tf"></select><button onclick="applyCfg()">APPLY</button><span id="feed" class="status">FEED: WAITING</span><span id="feedAge" class="status">AGE: —</span><span id="eng" class="status">ENGINE: WAITING</span></div><div class="grid"><div class="card"><div class="label">Signal</div><div id="sig" class="value signal wait">WAIT</div></div><div class="card"><div class="label">Entry Window</div><div id="count" class="value">—</div><small id="entryStatus">WAITING FOR SIGNAL</small></div><div class="card"><div class="label">LIVE CLOCK</div><div id="clock" class="value">--:--:--</div><small>LOCAL TIME • RUNNING</small></div><div class="card"><div class="label">Confidence</div><div id="conf" class="value">0%</div></div><div class="card"><div class="label">Asset</div><div id="as" class="value">EURUSD_otc</div></div><div class="card"><div class="label">Price</div><div id="price" class="value">—</div></div></div><div class="card"><div class="label">Market candles</div><div id="chart" class="chart"></div></div><div class="card"><div class="label">Indicator matrix</div><div id="matrix" class="matrix"></div></div><div class="card"><div class="label">Engine reason</div><div id="reason" style="margin-top:8px">Waiting for live market data.</div></div><div class="card"><div class="label">AI SETUPS — LIVE</div><div id="scanner">SCANNING FEED…</div><small>68%+ setup quality • 90–115% margin priority</small></div><div class="foot">Signal-only architecture. No order execution is enabled. Entry window is dynamic and closes early if confirmation is lost.</div></main><script>
 const $=x=>document.getElementById(x);
 async function init(){const a=await fetch('/api/assets').then(r=>r.json());for(const[g,items]of Object.entries(a.assets)){const o=document.createElement('optgroup');o.label=g;items.forEach(v=>{const q=document.createElement('option');q.value=v;q.textContent=v;o.appendChild(q)});$('asset').appendChild(o)}$('asset').value='EURUSD_otc';a.timeframes.forEach(v=>{const q=document.createElement('option');q.value=v;q.textContent=v;$('tf').appendChild(q)});$('tf').value='1m';poll()}
 async function applyCfg(){const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({asset:$('asset').value,timeframe:$('tf').value})});const d=await r.json();if(!d.ok)alert(d.error||'Configuration change failed')}
