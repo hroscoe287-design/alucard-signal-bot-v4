@@ -8,7 +8,8 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 import websockets
 
 log = logging.getLogger("alucard.feed")
-# The scanner receives a high-volume multi-asset stream. Keep per-tick INFO logging off so Render free-tier CPU is reserved for the dashboard/engine.\nlog.setLevel(logging.WARNING)
+# Keep high-volume feed diagnostics off on the Render free tier.
+log.setLevel(logging.WARNING)
 
 
 class PocketOptionFeed:
@@ -558,7 +559,7 @@ class PocketOptionFeed:
                                         self.on_history_asset(history_asset, history)
                                     elif self.on_history:
                                         self.on_history(history)
-                                    log.info("Pocket Option historical candles loaded: %d for %s", len(history), self._display_asset(body.get("asset") or body.get("symbol") or self.asset) if isinstance(body, dict) else self.asset)
+                                    log.debug("Pocket Option historical candles loaded: %d for %s", len(history), self._display_asset(body.get("asset") or body.get("symbol") or self.asset) if isinstance(body, dict) else self.asset)
 
                             parsed = self._extract_event(event, body)
                             if parsed:
