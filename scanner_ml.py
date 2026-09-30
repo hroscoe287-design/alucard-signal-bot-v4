@@ -63,11 +63,29 @@ def _psar_strategy(candles):
 
     sar = psar(df)
     close = df["close"]
-    if close.iloc[-1] > sar.iloc[-1] and close.iloc[-2] <= sar.iloc[-2]:
-        return {"signal": "CALL", "reason": "PSAR bullish reversal"}
-    if close.iloc[-1] < sar.iloc[-1] and close.iloc[-2] >= sar.iloc[-2]:
-        return {"signal": "PUT", "reason": "PSAR bearish reversal"}
-    return {"signal": "WAIT", "reason": "No PSAR reversal"}
+
+    # The scanner needs PSAR confirmation, not necessarily a fresh reversal.
+    # Requiring a brand-new crossing made valid ongoing PSAR trends disappear
+    # between reversal candles. Use the current PSAR side plus a 2-candle
+    # persistence check so the confirmation remains directional and stable.
+    above = close > sar
+    below = close < sar
+
+    if bool(above.iloc[-1]) and bool(above.iloc[-2]):
+        if bool(above.iloc[-3]) if len(above) >= 3 else False:
+            reason = "PSAR bullish alignment (3 candles)"
+        else:
+            reason = "PSAR bullish alignment (2 candles)"
+        return {"signal": "CALL", "reason": reason}
+
+    if bool(below.iloc[-1]) and bool(below.iloc[-2]):
+        if bool(below.iloc[-3]) if len(below) >= 3 else False:
+            reason = "PSAR bearish alignment (3 candles)"
+        else:
+            reason = "PSAR bearish alignment (2 candles)"
+        return {"signal": "PUT", "reason": reason}
+
+    return {"signal": "WAIT", "reason": "PSAR is not directionally aligned"}
 
 def scan(candles, horizon=1, min_probability=0.90, cache_key=""):
     """Signal-only adaptation of Vitaly's po_bot_ml.py. Never places orders."""
