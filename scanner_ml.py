@@ -5,7 +5,10 @@ from sklearn.ensemble import RandomForestClassifier
 from indicators import ema, rsi, atr, cci, macd, psar, alligator
 
 
-_MODEL_CACHE = {}\n\n\nFEATURES = [
+_MODEL_CACHE = {}
+
+
+FEATURES = [
     "ema_fast_slow",
     "ema_slope",
     "awesome_oscillator",
