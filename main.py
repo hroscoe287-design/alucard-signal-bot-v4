@@ -16,6 +16,10 @@ engine=SignalEngine(settings.min_confidence)
 
 # High-margin background scanner: separate feed so it never interrupts the user's selected pair.
 SCAN_ASSETS=sorted(set(sum(ASSETS.values(),[])))
+# Keep the live scanner lightweight on Render free tier. The selected asset
+# feed remains fully live; the AI scanner samples a smaller live subset instead
+# of opening a websocket subscription for every instrument at once.
+SCANNER_FEED_ASSETS=SCAN_ASSETS[:12]
 scanner_builders={}
 scanner_engines={}
 scanner_ticks={}
@@ -110,7 +114,7 @@ async def scanner_loop():
     while True:
         try:
             await asyncio.to_thread(refresh_scanner)
-            await asyncio.sleep(15.0)
+            await asyncio.sleep(30.0)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -185,10 +189,10 @@ async def startup():
  global feed,feed_task,scanner_feed,scanner_task,scanner_loop_task
  feed=PocketOptionFeed(settings.ws_url,settings.auth_json,on_tick,on_history,asset=state["asset"],period=TIMEFRAMES.get(state["timeframe"],60))
  feed_task=asyncio.create_task(feed.run())
- scanner_feed=PocketOptionFeed(settings.ws_url,settings.auth_json,scanner_tick,asset=SCAN_ASSETS[0],period=TIMEFRAMES.get(settings.timeframe,60),assets=SCAN_ASSETS,on_history_asset=scanner_history)
+ scanner_feed=PocketOptionFeed(settings.ws_url,settings.auth_json,scanner_tick,asset=SCANNER_FEED_ASSETS[0],period=TIMEFRAMES.get(settings.timeframe,60),assets=SCANNER_FEED_ASSETS,on_history_asset=scanner_history)
  scanner_task=asyncio.create_task(scanner_feed.run())
  scanner_loop_task=asyncio.create_task(scanner_loop())
- logging.info("%s started; auth configured=%s; background scanner assets=%d",APP_NAME,bool(settings.auth_json),len(SCAN_ASSETS))
+ logging.info("%s started; auth configured=%s; background scanner assets=%d",APP_NAME,bool(settings.auth_json),len(SCANNER_FEED_ASSETS))
 @app.on_event("shutdown")
 async def shutdown():
  if feed:await feed.stop()
