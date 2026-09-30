@@ -55,80 +55,44 @@ def refresh_scanner():
     ranked=[]
     tf=TIMEFRAMES.get(state["timeframe"],60)
     now=time.time()
-    # Scanner-only quality gate: keep the main trading engine unchanged, but
-    # allow the scanner to surface strong developing setups instead of waiting
-    # for the full 78% probability gate used by the main signal box.
-    scanner_probability_threshold=68.0
-    scanner_margin_threshold=6.0
+    # This scanner is deliberately independent of SignalEngine. It reproduces
+    # the public VitalySvyatyuk ML/PSAR approach and is signal-only.
     for asset,b in list(scanner_builders.items()):
-        if len(b.candles)<35:
+        if len(b.candles)<90:
             continue
-        result=calculate(b.snapshot())
-        eng=scanner_engines.setdefault(asset,SignalEngine(settings.min_confidence))
-        sig=eng.evaluate(result)
-        age=now-scanner_ticks.get(asset,0) if scanner_ticks.get(asset) else 9999
-        call_score=float(sig.get("call_score",0) or 0)
-        put_score=float(sig.get("put_score",0) or 0)
-        direction="CALL" if call_score>put_score else "PUT" if put_score>call_score else "WAIT"
-        margin=float(sig.get("adjusted_margin",0) or 0)
-        setup_probability=float(sig.get("setup_probability",0) or 0)
-        core_agreement=int(sig.get("core_agreement",0) or 0)
-        reversal_safety=bool(sig.get("reversal_safety",False))
-        votes=sig.get("votes",[]) or []
-        alligator_vote=next((x.get("direction") for x in votes if x.get("name")=="Alligator"),"WAIT")
-        trend_aligned=bool(core_agreement>=2 and alligator_vote==direction and not reversal_safety)
-
-        # Independent Random Forest confirmation. It is research-only and never executes trades.
         ml=ml_scan(b.snapshot(),horizon=1,min_probability=0.60,cache_key=asset)
-        ml_direction=ml.get("signal","WAIT")
-        ml_probability=float(ml.get("probability",0) or 0)
-        engine_direction=sig.get("signal","WAIT")
-        if ml_direction in ("CALL","PUT"):
-            direction=ml_direction
-        if engine_direction in ("CALL","PUT") and ml_direction in ("CALL","PUT") and engine_direction!=ml_direction:
-            direction="WAIT"
-        if direction in ("CALL","PUT"):
-            trend_aligned=bool(core_agreement>=2 and alligator_vote==direction and not reversal_safety)
-
-        if (
-            age<=settings.stale_seconds
-            and direction in ("CALL","PUT")
-            and margin>=scanner_margin_threshold
-            and setup_probability>=scanner_probability_threshold
-            and ml_probability>=60.0
-            and core_agreement>=2
-            and trend_aligned
-            and not reversal_safety
-        ):
-            candle_ts=b.candles[-1].ts
-            until=_scanner_entry_window(asset,direction,setup_probability,candle_ts,tf)
-            remaining=max(0.0,until-now)
-            if remaining>0:
-                ranked.append({
-                    "asset":asset,
-                    "timeframe":state["timeframe"],
-                    "signal":direction,
-                    "margin":round(margin,1),
-                    "confidence":round(setup_probability,1),
-                    "setup_probability":round(setup_probability,1),
-                    "core_trend":direction,
-                    "core_agreement":core_agreement,
-                    "age":round(age,2),
-                    "entry_remaining":round(remaining,1),
-                    "entry_open":True,
-                    "reason":sig.get("reason","Developing high-quality setup"),
-                    "main_engine_confirmed":sig.get("signal") in ("CALL","PUT"),
-                    "ml_confirmed":ml_direction==direction,
-                    "ml_probability":round(ml_probability,1),
-                    "ml_accuracy":ml.get("accuracy"),
-                    "ml_reason":ml.get("reason","")
-                })
-        else:
-            scanner_entry.pop(asset,None)
-    ranked.sort(
-        key=lambda x:(x["ml_confirmed"],x["main_engine_confirmed"],x["setup_probability"],x["ml_probability"],x["margin"],x["core_agreement"]),
-        reverse=True
-    )
+        age=now-scanner_ticks.get(asset,0) if scanner_ticks.get(asset) else 9999
+        if age>settings.stale_seconds or not ml.get("ready"):
+            continue
+        direction=ml.get("signal","WAIT")
+        if direction not in ("CALL","PUT"):
+            continue
+        candle_ts=b.candles[-1].ts
+        until=_scanner_entry_window(asset,direction,float(ml.get("probability",0)),candle_ts,tf)
+        remaining=max(0.0,until-now)
+        if remaining<=0:
+            continue
+        ranked.append({
+            "asset":asset,
+            "timeframe":state["timeframe"],
+            "signal":direction,
+            "confidence":round(float(ml.get("probability",0)),1),
+            "setup_probability":round(float(ml.get("probability",0)),1),
+            "ml_probability":round(float(ml.get("probability",0)),1),
+            "call_probability":round(float(ml.get("call_probability",0)),1),
+            "put_probability":round(float(ml.get("put_probability",0)),1),
+            "ml_accuracy":ml.get("accuracy"),
+            "training_rows":ml.get("training_rows",0),
+            "psar_signal":ml.get("psar_signal","WAIT"),
+            "psar_reason":ml.get("psar_reason",""),
+            "core_trend":ml.get("psar_signal","WAIT"),
+            "margin":round(abs(float(ml.get("call_probability",0))-float(ml.get("put_probability",0))),1),
+            "age":round(age,2),
+            "entry_remaining":round(remaining,1),
+            "entry_open":True,
+            "reason":ml.get("reason","Vitaly Random Forest scanner")
+        })
+    ranked.sort(key=lambda x:(x["ml_probability"],x["margin"],x["ml_accuracy"] or 0),reverse=True)
     scanner_candidates=ranked[:10]
     return scanner_candidates
 
