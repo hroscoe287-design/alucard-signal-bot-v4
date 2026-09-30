@@ -125,6 +125,8 @@ feed=None
 feed_task=None
 signal_task=None
 signal_generation=0
+signal_calc_pending=False
+signal_calc_next_at=0.0
 def refresh_entry_window(signal, candle_ts=None):
  now=time.time()
  direction=signal.get("signal","WAIT")
@@ -157,32 +159,44 @@ def on_history(candles):
   refresh_entry_window(state["signal"], builder.candles[-1].ts if builder.candles else None)
 
 async def process_latest_ticks():
- global signal_task
+ global signal_task,signal_calc_pending,signal_calc_next_at
  try:
-  while True:
-   generation=signal_generation
-   snapshot=builder.snapshot()
-   result=await asyncio.to_thread(calculate,snapshot)
-   if generation!=signal_generation:
-    continue
+  generation=signal_generation
+  snapshot=builder.snapshot()
+  result=await asyncio.to_thread(calculate,snapshot)
+  if generation==signal_generation:
    state["indicators"]=result.get("values",{})
    state["signal"]=engine.evaluate(result)
    state["signal"]=apply_pro_guards(state["signal"],state["indicators"],last_tick=state["last_tick"],timeframe_seconds=builder.timeframe,candle_ts=builder.candles[-1].ts if builder.candles else None)
    refresh_entry_window(state["signal"],snapshot[-1]["ts"] if snapshot else None)
-   if generation==signal_generation:
-    break
  finally:
   signal_task=None
+  signal_calc_pending=False
+  signal_calc_next_at=time.monotonic()+0.75
+  if signal_generation>generation and not signal_calc_pending:
+   signal_calc_pending=True
+   asyncio.get_running_loop().call_later(0.75,_schedule_signal_calc)
+
+def _schedule_signal_calc():
+ global signal_task,signal_calc_pending
+ signal_calc_pending=False
+ if signal_task is None or signal_task.done():
+  signal_task=asyncio.create_task(process_latest_ticks())
 
 def on_tick(asset,price,ts):
- global signal_task,signal_generation
+ global signal_task,signal_generation,signal_calc_pending
  if asset and asset.lower()!=state["asset"].lower():return
  state["price"]=price
  state["last_tick"]=time.time()
  builder.update(price,ts)
  signal_generation+=1
- if signal_task is None or signal_task.done():
+ if (signal_task is None or signal_task.done()) and not signal_calc_pending and time.monotonic() >= signal_calc_next_at:
   signal_task=asyncio.create_task(process_latest_ticks())
+ elif signal_task is None and not signal_calc_pending:
+  signal_calc_pending=True
+  delay=max(0.05,signal_calc_next_at-time.monotonic())
+  asyncio.get_running_loop().call_later(delay,_schedule_signal_calc)
+
 @app.on_event("startup")
 async def startup():
  global feed,feed_task,scanner_feed,scanner_task,scanner_loop_task
@@ -257,11 +271,11 @@ function updateClock(){const d=new Date();const el=$("clock");if(el)el.textConte
 async function fetchJson(url,timeoutMs=5000){const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),timeoutMs);try{const r=await fetch(url+"?ts="+Date.now(),{cache:"no-store",signal:ctl.signal});if(!r.ok)throw new Error(url+" HTTP "+r.status);return await r.json();}finally{clearTimeout(t);}}
 function fillSelects(data){const assets=data&&data.assets?data.assets:FALLBACK_ASSETS;const tfs=data&&data.timeframes?data.timeframes:FALLBACK_TIMEFRAMES;const asset=$("asset"),tf=$("tf");asset.innerHTML="";Object.entries(assets).forEach(([group,items])=>{const og=document.createElement("optgroup");og.label=group;(items||[]).forEach(v=>{const o=document.createElement("option");o.value=v;o.textContent=v;og.appendChild(o);});asset.appendChild(og);});asset.value="EURUSD_otc";tf.innerHTML="";tfs.forEach(v=>{const o=document.createElement("option");o.value=v;o.textContent=v;tf.appendChild(o);});tf.value="1m";}
 async function init(){let data={assets:FALLBACK_ASSETS,timeframes:FALLBACK_TIMEFRAMES};try{data=await fetchJson("/api/assets");}catch(e){console.warn("Asset API unavailable; using fallback",e);}fillSelects(data);updateClock();poll();}
-let pollBusy=false,renderKey="";async function applyCfg(){const btn=document.querySelector("button[onclick=\"applyCfg()\"]");if(btn)btn.disabled=true;try{const ctl=new AbortController();const timer=setTimeout(()=>ctl.abort(),5000);const r=await fetch("/api/config?ts="+Date.now(),{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",signal:ctl.signal,body:JSON.stringify({asset:$(\"asset\").value,timeframe:$(\"tf\").value})});clearTimeout(timer);if(!r.ok)throw new Error("HTTP "+r.status);const d=await r.json();if(!d.ok)alert(d.error||"Configuration change failed");else{renderKey="";$("as").textContent=d.asset;$("reason").textContent="Loading selected market data";$("sig").textContent="WAIT";$("conf").textContent="0%";$("count").textContent="00:00";}}catch(e){alert("Configuration request failed: "+(e.name==="AbortError"?"timeout":e.message));}finally{if(btn)btn.disabled=false;}}
+let pollBusy=false,renderKey="",visualKey="";async function applyCfg(){const btn=document.querySelector("button[onclick=\"applyCfg()\"]");if(btn)btn.disabled=true;try{const ctl=new AbortController();const timer=setTimeout(()=>ctl.abort(),5000);const r=await fetch("/api/config?ts="+Date.now(),{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",signal:ctl.signal,body:JSON.stringify({asset:$(\"asset\").value,timeframe:$(\"tf\").value})});clearTimeout(timer);if(!r.ok)throw new Error("HTTP "+r.status);const d=await r.json();if(!d.ok)alert(d.error||"Configuration change failed");else{renderKey="";$("as").textContent=d.asset;$("reason").textContent="Loading selected market data";$("sig").textContent="WAIT";$("conf").textContent="0%";$("count").textContent="00:00";}}catch(e){alert("Configuration request failed: "+(e.name==="AbortError"?"timeout":e.message));}finally{if(btn)btn.disabled=false;}}
 function draw(candles){$("chart").innerHTML=(candles||[]).map(x=>'<div class="bar '+(x.close>=x.open?"up":"down")+'" style="height:'+Math.max(6,Math.min(100,Math.abs(x.close-x.open)/(x.high-x.low||1)*100))+'%"></div>').join("");}
 function renderMatrix(v){const n=x=>typeof x==="number"?x.toFixed(5):"—";const n2=x=>typeof x==="number"?x.toFixed(2):"—";const rows=[["EMA 9 / 20 / 50",typeof v.ema9==="number"?[v.ema9,v.ema20,v.ema50].map(n).join(" / "):"—"],["Alligator",typeof v.alligator_lips==="number"?[v.alligator_lips,v.alligator_teeth,v.alligator_jaw].map(n).join(" / "):"—"],["Parabolic SAR",n(v.psar)],["MACD histogram",n(v.macd_hist)],["RSI",n2(v.rsi)],["CCI",n2(v.cci)],["Bollinger 20/2",typeof v.bb_pct==="number"?"%B "+n2(v.bb_pct)+" • W "+(typeof v.bb_width==="number"?v.bb_width.toFixed(4):"—"):"—"],["ADX / DMI",typeof v.adx==="number"?"ADX "+n2(v.adx)+" • +DI "+n2(v.plus_di)+" • -DI "+n2(v.minus_di):"—"],["Fractal Chaos Bands",typeof v.fcb_mid==="number"?(v.fcb_direction||"WAIT")+" • mid "+n(v.fcb_mid):"—"],["Stochastic",typeof v.stoch_k==="number"?"%K "+n2(v.stoch_k)+" • %D "+n2(v.stoch_d):"—"]];$("matrix").innerHTML=rows.map(r=>"<div><b>"+r[0]+"</b><br>"+r[1]+"</div>").join("");}
 function renderScanner(candidates){const el=$("scanner");if(!candidates||!candidates.length){el.textContent="NO HIGH-MARGIN SETUP";return;}el.innerHTML=candidates.slice(0,10).map((x,i)=>"<div style=\"margin:8px 0;padding:8px;background:#171923;border-radius:7px\"><b>#"+(i+1)+" "+x.asset+"</b> • <b>TF: "+x.timeframe+"</b> • <span class=\""+String(x.signal||"WAIT").toLowerCase()+"\">"+(x.signal||"WAIT")+"</span><br><small>RF: <b>"+Number(x.ml_probability||0).toFixed(0)+"%</b> • CALL "+Number(x.call_probability||0).toFixed(0)+"% • PUT "+Number(x.put_probability||0).toFixed(0)+"% • PSAR: <b>"+(x.psar_signal||"WAIT")+"</b> • TEST ACC: "+(x.ml_accuracy==null?"—":Number(x.ml_accuracy).toFixed(0)+"%")+"</small><br><b>ENTRY: <span>00:"+String(Math.ceil(Number(x.entry_remaining||0))).padStart(2,"0")+"</span></b> • "+(x.entry_open?"ENTRY OPEN":"ENTRY CLOSED")+"</div>").join("");}
-function renderState(s){$("as").textContent=s.asset||"—";$("price").textContent=s.price??"—";const z=s.signal||{};$("sig").textContent=z.signal||"WAIT";$("sig").className="value signal "+String(z.signal||"WAIT").toLowerCase();$("conf").textContent=Number(z.confidence||0)+"%";const rem=Math.max(0,Number(s.entry_remaining||0));$("count").textContent=(z.signal==="CALL"||z.signal==="PUT")&&rem>0?"00:"+String(Math.ceil(rem)).padStart(2,"0"):"00:00";$("entryStatus").textContent=(z.signal==="CALL"||z.signal==="PUT")&&rem>0?"ENTRY OPEN — VALIDATION ACTIVE":"ENTRY CLOSED — WAIT FOR NEXT SIGNAL";$("reason").textContent=z.reason||"Waiting for live market data.";draw(s.candles||[]);renderMatrix(s.indicators||{});}
+function renderState(s){$("as").textContent=s.asset||"—";$("price").textContent=s.price??"—";const z=s.signal||{};$("sig").textContent=z.signal||"WAIT";$("sig").className="value signal "+String(z.signal||"WAIT").toLowerCase();$("conf").textContent=Number(z.confidence||0)+"%";const rem=Math.max(0,Number(s.entry_remaining||0));$("count").textContent=(z.signal==="CALL"||z.signal==="PUT")&&rem>0?"00:"+String(Math.ceil(rem)).padStart(2,"0"):"00:00";$("entryStatus").textContent=(z.signal==="CALL"||z.signal==="PUT")&&rem>0?"ENTRY OPEN — VALIDATION ACTIVE":"ENTRY CLOSED — WAIT FOR NEXT SIGNAL";$("reason").textContent=z.reason||"Waiting for live market data.";const vk=JSON.stringify([s.asset,s.timeframe,(s.candles||[]).length,(s.candles||[]).at(-1),s.indicators]);if(vk!==visualKey){draw(s.candles||[]);renderMatrix(s.indicators||{});visualKey=vk;}}
 function renderHealth(h){$("feed").textContent="FEED: "+(h.feed||"WAITING");$("feedAge").textContent="AGE: "+(h.last_tick_age==null?"—":Number(h.last_tick_age).toFixed(2)+"s")+" • NET "+(h.feed_tick_latency_ms==null?"—":Number(h.feed_tick_latency_ms).toFixed(0)+"ms");$("eng").textContent="ENGINE: "+(h.engine||"WAITING");}
 async function poll(){if(pollBusy)return;pollBusy=true;let gotState=false;try{const s=await fetchJson("/api/state",4500);const key=JSON.stringify([s.asset,s.timeframe,s.price,s.last_tick_age,s.signal,s.entry_remaining,s.indicators,s.scanner]);if(key!==renderKey){renderState(s);renderKey=key;}gotState=true;}catch(e){console.warn("State poll failed",e);}try{const h=await fetchJson("/api/health",4500);renderHealth(h);}catch(e){if(!gotState){$("feed").textContent="FEED: CONNECTION";$("feedAge").textContent="AGE: —";$("eng").textContent="ENGINE: CONNECTION";}console.warn("Health poll failed",e);}finally{pollBusy=false;setTimeout(poll,1000);}}
 setInterval(updateClock,250);updateClock();init();
