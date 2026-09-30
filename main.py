@@ -64,7 +64,7 @@ def refresh_scanner():
         direction=sig.get("signal","WAIT")
         margin=float(sig.get("adjusted_margin",0) or 0)
         confidence=float(sig.get("confidence",0) or 0)
-        if age<=settings.stale_seconds and direction in ("CALL","PUT") and margin>=90:
+        if age<=settings.stale_seconds and direction in ("CALL","PUT") and 90 <= margin <= 120:
             candle_ts=b.candles[-1].ts
             until=_scanner_entry_window(asset,direction,confidence,candle_ts,tf)
             remaining=max(0.0,until-now)
@@ -84,7 +84,7 @@ async def scanner_loop():
         except asyncio.CancelledError:
             raise
         except Exception:
-            logging.exception("Super AI scanner cycle failed")
+            logging.exception("High-margin scanner cycle failed")
             await asyncio.sleep(1.0)
 
 state={"asset":settings.asset,"timeframe":settings.timeframe,"price":None,"last_tick":0.0,"signal":{"signal":"WAIT","confidence":0,"reason":"Waiting for market data"},"indicators":{},"entry_until":0.0,"entry_signal":"WAIT"}
@@ -92,10 +92,6 @@ feed=None
 feed_task=None
 signal_task=None
 signal_generation=0
-ai_busy=False
-ai_generation=0
-last_ai_candidate="WAIT"
-last_ai_candle_ts=0
 def refresh_entry_window(signal, candle_ts=None):
  now=time.time()
  direction=signal.get("signal","WAIT")
@@ -140,7 +136,7 @@ async def process_latest_ticks():
    state["signal"]=engine.evaluate(result)
    state["signal"]=apply_pro_guards(state["signal"],state["indicators"],last_tick=state["last_tick"],timeframe_seconds=builder.timeframe,candle_ts=builder.candles[-1].ts if builder.candles else None)
    refresh_entry_window(state["signal"],snapshot[-1]["ts"] if snapshot else None)
-    if generation==signal_generation:
+   if generation==signal_generation:
     break
  finally:
   signal_task=None
