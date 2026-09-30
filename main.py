@@ -20,9 +20,11 @@ SCAN_ASSETS=sorted(set(FOREX + [x+"_otc" for x in FOREX]))
 scanner_builders={}
 scanner_engines={}
 scanner_ticks={}
+scanner_entry={}
 scanner_candidates=[]
 scanner_feed=None
 scanner_task=None
+scanner_loop_task=None
 
 def scanner_history(asset, candles):
     asset=str(asset).lstrip("#")
@@ -36,30 +38,56 @@ def scanner_tick(asset, price, ts):
     b.update(price,ts)
     scanner_ticks[asset]=time.time()
 
+def _scanner_entry_window(asset, direction, confidence, candle_ts, tf):
+    now=time.time()
+    key=scanner_entry.get(asset)
+    bucket=int((candle_ts or now)//tf)*tf
+    candle_close=bucket+tf
+    if key and key["direction"]==direction and key["bucket"]==bucket and key["until"]>now:
+        return key["until"]
+    strength=max(0.0,min(1.0,(float(confidence or 0)-settings.min_confidence)/max(1.0,100.0-settings.min_confidence)))
+    window=max(5.0,min(tf*0.40,tf*(0.15+0.25*strength)))
+    until=min(candle_close,now+window)
+    scanner_entry[asset]={"direction":direction,"bucket":bucket,"until":until}
+    return until
+
 def refresh_scanner():
     global scanner_candidates
     ranked=[]
+    tf=TIMEFRAMES.get(state["timeframe"],60)
+    now=time.time()
     for asset,b in list(scanner_builders.items()):
         if len(b.candles)<30:
             continue
         result=calculate(b.snapshot())
         eng=scanner_engines.setdefault(asset,SignalEngine(settings.min_confidence))
         sig=eng.evaluate(result)
-        age=time.time()-scanner_ticks.get(asset,0) if scanner_ticks.get(asset) else 9999
+        age=now-scanner_ticks.get(asset,0) if scanner_ticks.get(asset) else 9999
+        direction=sig.get("signal","WAIT")
         margin=float(sig.get("adjusted_margin",0) or 0)
-        if age<=settings.stale_seconds and sig.get("signal") in ("CALL","PUT") and margin>=90:
-            ranked.append({
-                "asset":asset,
-                "signal":sig.get("signal"),
-                "margin":round(margin,1),
-                "confidence":sig.get("confidence",0),
-                "setup_probability":sig.get("setup_probability",0),
-                "age":round(age,2),
-                "reason":sig.get("reason","")
-            })
-    ranked.sort(key=lambda x:(x["margin"],x["setup_probability"],x["confidence"]),reverse=True)
+        confidence=float(sig.get("confidence",0) or 0)
+        if age<=settings.stale_seconds and direction in ("CALL","PUT") and margin>=90:
+            candle_ts=b.candles[-1].ts
+            until=_scanner_entry_window(asset,direction,confidence,candle_ts,tf)
+            remaining=max(0.0,until-now)
+            if remaining>0:
+                ranked.append({"asset":asset,"signal":direction,"margin":round(margin,1),"confidence":round(confidence,1),"setup_probability":round(float(sig.get("setup_probability",0) or 0),1),"core_trend":direction,"core_agreement":sig.get("core_agreement",0),"age":round(age,2),"entry_remaining":round(remaining,1),"entry_open":True,"reason":sig.get("reason","")})
+        elif asset in scanner_entry:
+            scanner_entry.pop(asset,None)
+    ranked.sort(key=lambda x:(105 <= x["margin"] <= 115,x["margin"],x["setup_probability"],x["confidence"]),reverse=True)
     scanner_candidates=ranked[:10]
     return scanner_candidates
+
+async def scanner_loop():
+    while True:
+        try:
+            refresh_scanner()
+            await asyncio.sleep(0.5)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logging.exception("Super AI scanner cycle failed")
+            await asyncio.sleep(1.0)
 
 state={"asset":settings.asset,"timeframe":settings.timeframe,"price":None,"last_tick":0.0,"signal":{"signal":"WAIT","confidence":0,"reason":"Waiting for market data"},"indicators":{},"entry_until":0.0,"entry_signal":"WAIT","ai_review":{"enabled":False,"decision":"NO_REVIEW","reason":"AI confirmation not configured"}}
 feed=None
@@ -169,11 +197,12 @@ def on_tick(asset,price,ts):
   signal_task=asyncio.create_task(process_latest_ticks())
 @app.on_event("startup")
 async def startup():
- global feed,feed_task,scanner_feed,scanner_task
+ global feed,feed_task,scanner_feed,scanner_task,scanner_loop_task
  feed=PocketOptionFeed(settings.ws_url,settings.auth_json,on_tick,on_history,asset=state["asset"],period=TIMEFRAMES.get(state["timeframe"],60))
  feed_task=asyncio.create_task(feed.run())
  scanner_feed=PocketOptionFeed(settings.ws_url,settings.auth_json,scanner_tick,asset=SCAN_ASSETS[0],period=TIMEFRAMES.get(settings.timeframe,60),assets=SCAN_ASSETS,on_history_asset=scanner_history)
  scanner_task=asyncio.create_task(scanner_feed.run())
+ scanner_loop_task=asyncio.create_task(scanner_loop())
  logging.info("%s started; auth configured=%s; Super AI scanner assets=%d",APP_NAME,bool(settings.auth_json),len(SCAN_ASSETS))
 @app.on_event("shutdown")
 async def shutdown():
@@ -181,6 +210,7 @@ async def shutdown():
  if scanner_feed:await scanner_feed.stop()
  if feed_task:feed_task.cancel()
  if scanner_task:scanner_task.cancel()
+ if scanner_loop_task:scanner_loop_task.cancel()
 @app.get("/api/health")
 async def health():
  age=time.time()-state["last_tick"] if state["last_tick"] else None
@@ -188,7 +218,7 @@ async def health():
  return {"service":APP_NAME,"feed":"LIVE" if live else "WAITING","engine":"READY" if builder.candles else "WAITING_FOR_FEED","last_tick_age":age,"feed_tick_latency_ms":feed.last_tick_latency_ms if feed else None,"feed_tick_source":feed.last_tick_source if feed else "","auth_configured":bool(settings.auth_json),"error":feed.last_error if feed else ""}
 @app.get("/api/scanner")
 async def api_scanner():
- return {"threshold":90,"priority_band":[105,115],"candidates":refresh_scanner()}
+ return {"threshold":90,"priority_band":[105,115],"candidates":scanner_candidates}
 
 @app.get("/api/state")
 async def api_state():
@@ -196,7 +226,7 @@ async def api_state():
  entry_remaining=max(0.0,state["entry_until"]-time.time()) if state["entry_until"] else 0.0
  if state["entry_until"] and (state["entry_signal"] != state["signal"].get("signal") or state["signal"].get("signal") not in ("CALL","PUT")):
   state["entry_until"]=0.0; state["entry_signal"]="WAIT"; entry_remaining=0.0
- return {"app":APP_NAME,"asset":state["asset"],"timeframe":state["timeframe"],"payout":settings.payout,"expiry":settings.expiry_minutes,"price":state["price"],"last_tick_age":age,"feed_tick_latency_ms":feed.last_tick_latency_ms if feed else None,"feed_tick_source":feed.last_tick_source if feed else "","feed_connected":bool(feed and feed.connected),"candles":builder.snapshot()[-120:],"indicators":state["indicators"],"signal":state["signal"],"ai_review":state.get("ai_review",{}),"scanner":{"threshold":90,"priority_band":[105,115],"candidates":refresh_scanner()},"entry_remaining":round(entry_remaining,1),"entry_open":entry_remaining>0}
+ return {"app":APP_NAME,"asset":state["asset"],"timeframe":state["timeframe"],"payout":settings.payout,"expiry":settings.expiry_minutes,"price":state["price"],"last_tick_age":age,"feed_tick_latency_ms":feed.last_tick_latency_ms if feed else None,"feed_tick_source":feed.last_tick_source if feed else "","feed_connected":bool(feed and feed.connected),"candles":builder.snapshot()[-120:],"indicators":state["indicators"],"signal":state["signal"],"ai_review":state.get("ai_review",{}),"scanner":{"threshold":90,"priority_band":[105,115],"candidates":scanner_candidates},"entry_remaining":round(entry_remaining,1),"entry_open":entry_remaining>0}
 @app.get("/api/backtest")
 async def api_backtest():
  return run_backtest(builder.snapshot(),settings.min_confidence,150)
@@ -238,7 +268,7 @@ function updateClock(){const d=new Date();$('clock').textContent=d.toLocaleTimeS
 setInterval(updateClock,250);updateClock();
 async function poll(){try{const[s,h]=await Promise.all([fetch('/api/state').then(r=>r.json()),fetch('/api/health').then(r=>r.json())]);$('as').textContent=s.asset;$('price').textContent=s.price??'—';$('feed').textContent='FEED: '+h.feed;$('feedAge').textContent='AGE: '+(h.last_tick_age==null?'—':h.last_tick_age.toFixed(2)+'s')+' • NET '+(h.feed_tick_latency_ms==null?'—':h.feed_tick_latency_ms.toFixed(0)+'ms');$('eng').textContent='ENGINE: '+h.engine;const z=s.signal||{};$('sig').textContent=z.signal||'WAIT';const rem=Math.max(0,s.entry_remaining||0);$('count').textContent=(z.signal==='CALL'||z.signal==='PUT')&&rem>0?('00:'+String(Math.ceil(rem)).padStart(2,'0')):'00:00';$('entryStatus').textContent=(z.signal==='CALL'||z.signal==='PUT')&&rem>0?'ENTRY OPEN — VALIDATION ACTIVE':'ENTRY CLOSED — WAIT FOR NEXT SIGNAL';$('sig').className='value signal '+(z.signal||'WAIT').toLowerCase();$('conf').textContent=(z.confidence||0)+'%';$('reason').textContent=z.reason||'';const ai=s.ai_review||{};$('ai').textContent=ai.enabled?(ai.decision||'WAIT')+' • '+(ai.reason||''):'NOT CONFIGURED';
 const sc=(s.scanner||{}).candidates||[];
-$('scanner').innerHTML=sc.length?sc.slice(0,5).map((x,i)=>'<div style="margin:5px 0"><b>#'+(i+1)+' '+x.asset+'</b> • <span class="'+x.signal.toLowerCase()+'">'+x.signal+'</span> • <b>'+x.margin.toFixed(1)+'% margin</b>'+(x.margin>=105?' 🔥':'')+'</div>').join(''):'NO HIGH-MARGIN SETUP';draw(s.candles||[]);const v=s.indicators||{};const rows=[['EMA 9 / 20 / 50',v.ema9?[v.ema9,v.ema20,v.ema50].map(x=>x.toFixed(5)).join(' / '):'—'],['Alligator',v.alligator_lips?[v.alligator_lips,v.alligator_teeth,v.alligator_jaw].map(x=>x.toFixed(5)).join(' / '):'—'],['Parabolic SAR',v.psar?.toFixed(5)||'—'],['MACD histogram',v.macd_hist?.toFixed(5)||'—'],['RSI',v.rsi?.toFixed(2)||'—'],['CCI',v.cci?.toFixed(2)||'—'],['Bollinger 20/2',v.bb_pct!=null?('%B '+v.bb_pct.toFixed(2)+' • W '+v.bb_width.toFixed(4)):'—'],['ADX / DMI',v.adx!=null?('ADX '+v.adx.toFixed(1)+' • +DI '+v.plus_di.toFixed(1)+' • -DI '+v.minus_di.toFixed(1)):'—'],['Fractal Chaos Bands',v.fcb_mid!=null?((v.fcb_direction||'WAIT')+' • mid '+v.fcb_mid.toFixed(5)):'—'],['Stochastic',v.stoch_k!=null?('%K '+v.stoch_k.toFixed(1)+' • %D '+v.stoch_d.toFixed(1)):'—']];$('matrix').innerHTML=rows.map(r=>'<div><b>'+r[0]+'</b><br>'+r[1]+'</div>').join('')}catch(e){}setTimeout(poll,250)}init()
+$('scanner').innerHTML=sc.length?sc.slice(0,5).map((x,i)=>'<div style="margin:8px 0;padding:8px;background:#171923;border-radius:7px"><b>#'+(i+1)+' '+x.asset+'</b> • <span class="'+x.signal.toLowerCase()+'">'+x.signal+'</span><br><small>CORE TREND: '+x.core_trend+' • MARGIN: <b>'+x.margin.toFixed(1)+'%</b>'+(x.margin>=105&&x.margin<=115?' 🔥':'')+' • CONF: '+x.confidence.toFixed(0)+'%</small><br><b>ENTRY: <span id="scan-'+i+'">00:'+String(Math.ceil(x.entry_remaining)).padStart(2,'0')+'</span></b> • '+(x.entry_open?'ENTRY OPEN':'ENTRY CLOSED')+'</div>').join(''):'NO HIGH-MARGIN SETUP';draw(s.candles||[]);const v=s.indicators||{};const rows=[['EMA 9 / 20 / 50',v.ema9?[v.ema9,v.ema20,v.ema50].map(x=>x.toFixed(5)).join(' / '):'—'],['Alligator',v.alligator_lips?[v.alligator_lips,v.alligator_teeth,v.alligator_jaw].map(x=>x.toFixed(5)).join(' / '):'—'],['Parabolic SAR',v.psar?.toFixed(5)||'—'],['MACD histogram',v.macd_hist?.toFixed(5)||'—'],['RSI',v.rsi?.toFixed(2)||'—'],['CCI',v.cci?.toFixed(2)||'—'],['Bollinger 20/2',v.bb_pct!=null?('%B '+v.bb_pct.toFixed(2)+' • W '+v.bb_width.toFixed(4)):'—'],['ADX / DMI',v.adx!=null?('ADX '+v.adx.toFixed(1)+' • +DI '+v.plus_di.toFixed(1)+' • -DI '+v.minus_di.toFixed(1)):'—'],['Fractal Chaos Bands',v.fcb_mid!=null?((v.fcb_direction||'WAIT')+' • mid '+v.fcb_mid.toFixed(5)):'—'],['Stochastic',v.stoch_k!=null?('%K '+v.stoch_k.toFixed(1)+' • %D '+v.stoch_d.toFixed(1)):'—']];$('matrix').innerHTML=rows.map(r=>'<div><b>'+r[0]+'</b><br>'+r[1]+'</div>').join('')}catch(e){}setTimeout(poll,250)}init()
 </script></body></html>'''
 @app.get("/",response_class=HTMLResponse)
 async def home():return HTML
