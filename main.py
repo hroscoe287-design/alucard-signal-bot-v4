@@ -235,11 +235,17 @@ async def config(request:Request):
  state["entry_signal"]="WAIT"
  state["signal"]={"signal":"WAIT","confidence":0,"reason":"Loading selected market data","votes":[]}
  if feed:
-  try:
-   await feed.change_subscription(new_asset,TIMEFRAMES[new_tf])
-  except Exception as exc:
-   logging.exception("configuration change failed")
-   return {"ok":False,"asset":new_asset,"timeframe":new_tf,"error":str(exc)}
+  # Do not make the mobile Apply button wait on the Pocket Option
+  # websocket subscription. The UI switches immediately; the feed
+  # finishes the subscription in the background.
+  async def _switch_feed():
+   try:
+    await asyncio.wait_for(feed.change_subscription(new_asset,TIMEFRAMES[new_tf]),timeout=5.0)
+   except asyncio.TimeoutError:
+    logging.warning("configuration subscription timed out for %s/%s; feed will reconnect with the new selection",new_asset,new_tf)
+   except Exception:
+    logging.exception("configuration change failed for %s/%s",new_asset,new_tf)
+  asyncio.create_task(_switch_feed())
  return {"ok":True,"asset":new_asset,"timeframe":new_tf,"changed_asset":changed_asset,"changed_timeframe":changed_tf}
 HTML='''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>ALUCARD V4</title><style>
 *{box-sizing:border-box}body{margin:0;background:#08090d;color:#e9e9ee;font-family:system-ui,sans-serif}header{padding:18px 22px;border-bottom:1px solid #262833;background:#0d0e14}h1{margin:0;font-size:22px;letter-spacing:2px}.wrap{max-width:1200px;margin:auto;padding:18px}small,.label,.foot{color:#858b9b}.tabs,.controls{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.tab,select,button,.status{background:#151823;color:#eee;border:1px solid #343846;border-radius:8px;padding:9px 12px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.card{background:#11131b;border:1px solid #252834;border-radius:12px;padding:15px;margin-top:12px}.label{font-size:11px;text-transform:uppercase}.value{font-size:23px;margin-top:7px;font-weight:700}.signal{font-size:32px;letter-spacing:2px}.call{color:#56e39f}.put{color:#ff6577}.wait{color:#f1c75b}.chart{height:280px;display:flex;align-items:flex-end;gap:3px;overflow:hidden}.bar{width:7px;min-height:4px}.up{background:#56e39f}.down{background:#ff6577}.matrix{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.matrix div{padding:10px;background:#171923;border-radius:7px;font-size:12px}.foot{font-size:12px;margin-top:18px}@media(max-width:800px){.grid{grid-template-columns:1fr 1fr}.matrix{grid-template-columns:1fr 1fr}}@media(max-width:500px){.value{font-size:18px}.signal{font-size:27px}}
