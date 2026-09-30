@@ -17,7 +17,7 @@ def _frame(candles):
     if df.empty:
         return df
     for c in ("open", "high", "low", "close"):
-        df[c] = pd.to_numeric(df[c], errors="coerce")
+        df.loc[:, c] = pd.to_numeric(df[c], errors="coerce")
     return df.dropna(subset=["open", "high", "low", "close"]).reset_index(drop=True)
 
 def _psar_reversal(df):
