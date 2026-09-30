@@ -110,7 +110,7 @@ async def scanner_loop():
     while True:
         try:
             await asyncio.to_thread(refresh_scanner)
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(5.0)
         except asyncio.CancelledError:
             raise
         except Exception:
