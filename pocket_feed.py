@@ -334,7 +334,7 @@ class PocketOptionFeed:
                         price = float(item[2])
                     except (TypeError, ValueError):
                         continue
-                    if self._valid_price(price, asset) and (asset in self.assets or not asset):
+                    if self._valid_price(price, asset) and (not asset or asset.lower() in {str(x).lower() for x in self.assets}):
                         if stamp > 10_000_000_000:
                             stamp /= 1000.0
                         return self._display_asset(asset) or self.asset, price, stamp
@@ -394,7 +394,7 @@ class PocketOptionFeed:
                 continue
             if ts > 10_000_000_000:
                 ts /= 1000.0
-            if asset in self.assets and self._valid_price(o, asset) and self._valid_price(h, asset) and self._valid_price(l, asset) and self._valid_price(c, asset) and h >= max(o, c) and l <= min(o, c):
+            if asset.lower() in {str(v).lower() for v in self.assets} and self._valid_price(o, asset) and self._valid_price(h, asset) and self._valid_price(l, asset) and self._valid_price(c, asset) and h >= max(o, c) and l <= min(o, c):
                 out.append({"timestamp": ts, "open": o, "close": c, "high": h, "low": l})
         return out
 
@@ -428,7 +428,7 @@ class PocketOptionFeed:
                     candidates.append(parsed)
 
         walk(body)
-        preferred = [x for x in candidates if x[0] in self.assets or x[0] is None]
+        preferred = [x for x in candidates if x[0] is None or str(x[0]).lower() in {str(v).lower() for v in self.assets}]
         if event == "updateStream" and preferred:
             asset, price, ts = preferred[0]
             return asset or self.asset, price, ts
