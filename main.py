@@ -330,7 +330,7 @@ async def home():
         '<select id="asset"></select><select id="tf"></select><button onclick="applyCfg()">APPLY</button>',
         controls_markup
     )
-    html=html.replace('<meta name="viewport" content="width=device-width,initial-scale=1">','<meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="5">')
+    html=html.replace('<meta name="viewport" content="width=device-width,initial-scale=1">','<meta name="viewport" content="width=device-width,initial-scale=1">')
     html=html.replace('<div id="scanner">SCANNING FEED…</div>',f'<div id="scanner">{scanner_markup}</div>')
     html=html.replace('FEED: WAITING',f'FEED: {initial_feed}',1)
     html=html.replace('AGE: —',f'AGE: {initial_age} • NET —',1)
