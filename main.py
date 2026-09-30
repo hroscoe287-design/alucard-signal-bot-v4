@@ -19,7 +19,7 @@ SCAN_ASSETS=sorted(set(sum(ASSETS.values(),[])))
 # Keep the live scanner lightweight on Render free tier. The selected asset
 # feed remains fully live; the AI scanner samples a smaller live subset instead
 # of opening a websocket subscription for every instrument at once.
-SCANNER_FEED_ASSETS=SCAN_ASSETS[:12]
+SCANNER_FEED_ASSETS=SCAN_ASSETS[:3]
 scanner_builders={}
 scanner_engines={}
 scanner_ticks={}
