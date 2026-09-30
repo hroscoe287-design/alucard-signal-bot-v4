@@ -5,7 +5,7 @@ from sklearn.ensemble import RandomForestClassifier
 from indicators import ema, rsi, atr, cci, macd, psar, alligator
 
 
-FEATURES = [
+_MODEL_CACHE = {}\n\n\nFEATURES = [
     "ema_fast_slow",
     "ema_slope",
     "awesome_oscillator",
@@ -63,7 +63,7 @@ def _features(candles):
     return out.replace([np.inf, -np.inf], np.nan), df
 
 
-def scan(candles, horizon=1, min_probability=0.60):
+def scan(candles, horizon=1, min_probability=0.60, cache_key=""):
     """
     Research-only Random Forest confirmation inspired by the public
     Pocket Option ML example: EMA, oscillator/momentum, PSAR, CCI and MACD.
@@ -96,19 +96,36 @@ def scan(candles, horizon=1, min_probability=0.60):
     train_df = data.iloc[:split]
     valid_df = data.iloc[split:]
 
-    model = RandomForestClassifier(
-        n_estimators=300,
-        max_depth=7,
-        min_samples_leaf=3,
-        random_state=42,
-        class_weight="balanced_subsample",
-        n_jobs=1,
-    )
-    model.fit(train_df[FEATURES], train_df["target"])
+    # Retrain only when the latest completed candle changes. The live candle
+    # can update every tick, but its unfinished data must not force a 300-tree
+    # model rebuild every second.
+    completed_ts = None
+    if "ts" in df.columns and len(df) >= 2:
+        completed_ts = str(df.iloc[-2]["ts"])
+    cache_id = (cache_key or "default", horizon, completed_ts, len(data))
+    cached = _MODEL_CACHE.get(cache_id)
+    if cached is not None:
+        model, accuracy = cached
+    else:
+        model = RandomForestClassifier(
+            n_estimators=300,
+            max_depth=7,
+            min_samples_leaf=3,
+            random_state=42,
+            class_weight="balanced_subsample",
+            n_jobs=1,
+        )
+        model.fit(train_df[FEATURES], train_df["target"])
 
-    accuracy = None
-    if len(valid_df) >= 10:
-        accuracy = float(model.score(valid_df[FEATURES], valid_df["target"]))
+        accuracy = None
+        if len(valid_df) >= 10:
+            accuracy = float(model.score(valid_df[FEATURES], valid_df["target"]))
+        _MODEL_CACHE[cache_id] = (model, accuracy)
+
+        # Keep the cache bounded while the multi-asset scanner runs.
+        if len(_MODEL_CACHE) > 128:
+            for key in list(_MODEL_CACHE)[:-96]:
+                _MODEL_CACHE.pop(key, None)
 
     latest = feats.iloc[[-1]][FEATURES]
     if latest.isna().any(axis=None):
