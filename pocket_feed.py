@@ -146,6 +146,10 @@ class PocketOptionFeed:
 
         self.asset = str(asset).lstrip("#")
         self.period = period
+        # Keep exactly one active subscription: the currently selected asset.
+        # This prevents stale subscriptions from consuming the feed and makes
+        # Apply reliably switch the live stream to the selected instrument.
+        self.assets = {self.asset}
 
         if self.ws and self.connected and self.authenticated:
             await self._subscribe(self.ws)
