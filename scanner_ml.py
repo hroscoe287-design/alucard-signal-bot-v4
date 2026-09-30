@@ -69,7 +69,7 @@ def _psar_strategy(candles):
         return {"signal": "PUT", "reason": "PSAR bearish reversal"}
     return {"signal": "WAIT", "reason": "No PSAR reversal"}
 
-def scan(candles, horizon=1, min_probability=0.60, cache_key=""):
+def scan(candles, horizon=1, min_probability=0.90, cache_key=""):
     """Signal-only adaptation of Vitaly's po_bot_ml.py. Never places orders."""
     feats, df = _features(candles)
     psar_result = _psar_strategy(candles)
@@ -150,7 +150,10 @@ def scan(candles, horizon=1, min_probability=0.60, cache_key=""):
     call_p = prob_by_class.get(0, 0.0)
     probability = max(put_p, call_p)
 
-    if probability >= min_probability:
+    margin = abs(call_p - put_p)
+    # Scanner-only quality gate: 90%+ model confidence must also have a
+    # decisive probability separation. This does not touch SignalEngine.
+    if probability >= min_probability and margin >= 0.80:
         signal = "PUT" if put_p >= call_p else "CALL"
     else:
         signal = "WAIT"
@@ -159,6 +162,8 @@ def scan(candles, horizon=1, min_probability=0.60, cache_key=""):
         "ready": True,
         "signal": signal,
         "probability": round(probability * 100, 1),
+        "margin": round(margin * 100, 1),
+        "qualified": bool(probability >= min_probability and margin >= 0.80),
         "call_probability": round(call_p * 100, 1),
         "put_probability": round(put_p * 100, 1),
         "accuracy": round(accuracy * 100, 1) if accuracy is not None else None,
