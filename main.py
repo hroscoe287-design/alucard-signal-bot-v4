@@ -87,6 +87,8 @@ def refresh_scanner():
             direction=ml_direction
         if engine_direction in ("CALL","PUT") and ml_direction in ("CALL","PUT") and engine_direction!=ml_direction:
             direction="WAIT"
+        if direction in ("CALL","PUT"):
+            trend_aligned=bool(core_agreement>=2 and alligator_vote==direction and not reversal_safety)
 
         if (
             age<=settings.stale_seconds
